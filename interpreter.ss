@@ -83,7 +83,8 @@
    (name (lambda (x) (list? (member x *prim-proc-names*))))]
   [proc
    (args (list-of symbol?))
-   (bodies (list-of expression?))])
+   (bodies (list-of expression?))
+   (envir environment?)])
 	 
 	
 
@@ -157,16 +158,16 @@
                       (eopl:error 'parse-exp "named-let must have a body: ~s" datum))))]     
         [(eqv? (car datum) 'lambda)
           (if   (>= (length datum) 3)
-             (cond
-              [(null? (2nd datum)) (lambda-exp (2nd datum) (map parse-exp (cddr datum)))] 
-              [(list? (2nd datum)) 
-                (if ((list-of symbol?) (2nd datum)) 
-                    (lambda-exp (2nd datum) (map parse-exp (cddr datum)))
-                    (eopl:error 'parse-exp "all variables must be symbols: ~s" datum))]
-              [else (if (symbol? (2nd datum))
-			(lambda-exp (2nd datum) (map parse-exp (cddr datum)))
-                    (eopl:error 'parse-exp "lambda variable must be a symbol"))])
-	     (eopl:error 'parse-exp "lambda expression too short: ~s" datum))]
+		(cond
+		 [(null? (2nd datum)) (lambda-exp (2nd datum) (map parse-exp (cddr datum)))] 
+		 [(list? (2nd datum)) 
+		  (if ((list-of symbol?) (2nd datum)) 
+		      (lambda-exp (2nd datum) (map parse-exp (cddr datum)))
+		      (eopl:error 'parse-exp "all variables must be symbols: ~s" datum))]
+		 [else (if (symbol? (2nd datum))
+			   (lambda-exp (2nd datum) (map parse-exp (cddr datum)))
+			   (eopl:error 'parse-exp "lambda variable must be a symbol"))])
+		(eopl:error 'parse-exp "lambda expression too short: ~s" datum))]
         [else (app-exp (parse-exp (1st datum)) (map parse-exp (cdr datum)))])]
       [else (eopl:error 'parse-exp "bad expression: ~s" datum)])))
 
@@ -321,9 +322,9 @@
 		 (if (proc-val? proc-value)
 		     (apply-proc proc-value args var env)
 		     (eopl:error 'eval-exp "Rator is not a procedure: ~a" rator)))]
-      [if-else-exp (condition then-exp else-exp) (if (eval-exp condition exp) (eval-exp then-exp env) (eval-exp else-exp env))]
+      [if-else-exp (condition then-exp else-exp) (if (eval-exp condition env) (eval-exp then-exp env) (eval-exp else-exp env))]
       [if-exp (condition then-exp) (if (eval-exp condition) (eval-exp then-exp env))]
-      [lambda-exp (vars bodies) (proc vars bodies)]
+      [lambda-exp (vars bodies) (proc vars bodies env)]
       [let-exp (vars vals bodies) (get-last (map-first (lambda (x) (eval-exp x (extend-env vars (let loop ([v vals]) 
 								      (if (null? v)
 									  '()
@@ -359,12 +360,12 @@
     (cases proc-val proc-value
       [prim-proc (op) (apply-prim-proc op args var env)]
 			; You will add other cases
-      [proc (xs bodies)
-	    (let loop ([bds bodies])
+      [proc (xs bodies envir)
+	    (let loop ([bds bodies] [xp (extend-env xs args envir)])
 	      (if (null? (cdr bds))
-		  (eval-exp (car bds) (extend-env xs args env))
-		  (begin (eval-exp (car bds) (extend-env xs args env))
-			 (loop (cdr bds)))))]
+		  (eval-exp (car bds) xp)
+		  (begin (eval-exp (car bds) xp)
+			 (loop (cdr bds) xp))))]
       [else (eopl:error 'apply-proc
                    "Attempt to apply bad procedure: ~s" 
                     proc-value)])))
