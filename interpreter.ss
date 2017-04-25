@@ -325,11 +325,12 @@
       [if-else-exp (condition then-exp else-exp) (if (eval-exp condition env) (eval-exp then-exp env) (eval-exp else-exp env))]
       [if-exp (condition then-exp) (if (eval-exp condition) (eval-exp then-exp env))]
       [lambda-exp (vars bodies) (proc vars bodies env)]
-      [let-exp (vars vals bodies) (get-last (map-first (lambda (x) (eval-exp x (extend-env vars (let loop ([v vals]) 
-								      (if (null? v)
-									  '()
-									  (cons (eval-exp (1st v) env) (loop (cdr v))))) 
-							       env))) bodies))]
+      [let-exp (vars vals bodies) 
+              (let ([envior (extend-env vars (let loop ([v vals]) 
+                      (if (null? v)
+                          '()
+                          (cons (eval-exp (1st v) env) (loop (cdr v))))) env)])
+        (get-last (map-first (lambda (x) (eval-exp x envior)) bodies)))]
       [else (eopl:error 'eval-exp "Bad abstract syntax: ~a" exp)])))
 
 (define map-first
@@ -424,10 +425,8 @@
       [(vector?) (vector? (1st args))] 
       [(number?)(number? (1st args))] 
       [(symbol?)(symbol? (1st args))] 
-      [(set-car!) (apply-env env var (lambda (x) (set-car! x (2nd args)))
-			    (lambda (x) (eopl:error 'set-car! "~s is not defined in environment." var)))]
-      [(set-cdr!) (apply-env env var (lambda (x) (set-cdr! x (2nd args)))
-			    (lambda (x) (eopl:error 'set-cdr! "~s is not defined in environment." var)))]
+      [(set-car!) (apply set-car! args)]
+      [(set-cdr!) (apply set-car! args)]
       [(vector-set!) (apply-env env var (lambda (x) (vector-set! x (2nd args) (3rd args)))
 			       (lambda (x) (eopl:error 'vector-set! "~s is not defined in environment." var)))]
       [(display)(display (1st args))] 
