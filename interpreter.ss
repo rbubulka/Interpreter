@@ -426,7 +426,7 @@
       [(number?)(number? (1st args))] 
       [(symbol?)(symbol? (1st args))] 
       [(set-car!) (apply set-car! args)]
-      [(set-cdr!) (apply set-car! args)]
+      [(set-cdr!) (apply set-cdr! args)]
       [(vector-set!) (apply-env env var (lambda (x) (vector-set! x (2nd args) (3rd args)))
 			       (lambda (x) (eopl:error 'vector-set! "~s is not defined in environment." var)))]
       [(display)(display (1st args))] 
