@@ -67,8 +67,12 @@
       (bodies (list-of expression?))]
     [or-exp
       (bodies (list-of expression?))]
-  [begin-exp 
-    (bodies (list-of expression?))]
+    [begin-exp 
+      (bodies (list-of expression?))]
+    [case-exp 
+      (tocompare expression?)
+      (conditions (list-of expression?))
+      (thens (list-of expression?))]
   )
 
 	
@@ -195,6 +199,19 @@
                   [thens (map (lambda (x) (parse-exp (2nd x))) (cdr datum))]) 
             (cond-exp conditions thens)
           )]
+        [(eqv? (1st datum) 'case)
+            (let ([bodies (let loop ([args (cddr datum)])
+              (if (null? args) 
+                  '()
+                  (if (list? (1st (1st args)))
+                      (append (let loop2 ( [conditionlist (1st (1st args))]
+                                                    [thencopy (list (parse-exp (2nd (1st args)))])
+                                          (if (null? (cdr conditionlist)) 
+                                              (list (parse-exp (car conditionlist)) thencopy)
+                                              (cons (list (parse-exp (car conditionlist)) thencopy) 
+                                                    (loop2 (cdr conditionlist) thencopy)))) (loop (cdr args)))  
+                  (cons (list (parse-exp (car (1st args))) (list (parse-exp (2nd (1st args))))) (loop (cdr args))))))])
+            (case-exp (parse-exp (2nd datum)) (map 1st bodies) (map 2nd bodies)))]
         [(eqv? (1st datum) 'and)(and-exp (map parse-exp (cdr datum)))]
         [(eqv? (1st datum) 'or)(or-exp (map parse-exp (cdr datum)))]
         [else (app-exp (parse-exp (1st datum)) (map parse-exp (cdr datum)))])]
@@ -317,7 +334,7 @@
     [if-else-exp (condit then-exp else-exp) (if-else-exp (syntax-expand condit) (syntax-expand then-exp)(syntax-expand else-exp))]
     [set!-exp (setvars newval) (set!-exp setvars (syntax-expand newval))]
     [begin-exp (bodies) (syntax-expand (let-exp '() '() bodies))]
-    [cond-exp (conditions thens) 
+    [cond-exp (conditions thens) ;come back and fix in the event of no else statement
           (let loop ([remainingconds conditions] 
                       [remainingthens thens])
             (if (null? (cdr remainingconds))
@@ -337,6 +354,13 @@
                                     (if-else-exp  (syntax-expand (1st remaining))
                                                   (syntax-expand (1st remaining))
                                                   (loop (cdr remaining)))))]
+    [case-exp (tocompare conditions thens)(let loop ([remainingconds conditions]
+                                                      [remainingthens thens])
+                                          (if (null? (cdr remainingconds))
+                                              (syntax-expand (1st remainingthens))
+                                              (if-else-exp (app-exp (var-exp 'eqv?) (list (syntax-expand tocompare) (syntax-expand (1st remainingconds))))
+                                                            (syntax-expand (1st remainingthens))
+                                                            (loop (cdr remainingconds) (cdr remainingthens)))))]
     [else exp]
     )))
 
@@ -441,7 +465,7 @@
                     proc-value)])))
 
 (define *prim-proc-names* '(+ - * / add1 sub1 zero? not = < > <= >= cons car cdr 
-                              list null? assq eq? equal? atom? length list->vector
+                              list null? assq eq? eqv? equal? atom? length list->vector
                               list? pair? procedure? vector->list vector make-vector 
                               vector-ref vector? number? symbol? set-car! set-cdr! 
                               vector-set! display newline caar cadr cdar cddr
@@ -479,7 +503,8 @@
       [(list) args]
       [(null?) (null? (1st args))] 
       [(assq) (assq (1st args) (2nd args))] 
-      [(eq?) (eq? (1st args) (2nd args))] 
+      [(eq?) (eq? (1st args) (2nd args))]
+      [(eqv?) (eqv? (1st args) (2nd args))] 
       [(equal?) (equal? (1st args) (2nd args))] 
       [(atom?) (atom? (1st args))] 
       [(length) (length (1st args))] 
