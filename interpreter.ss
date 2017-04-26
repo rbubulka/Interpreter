@@ -60,7 +60,9 @@
    [set!-exp
     (setvars symbol?)
     (newval expression?)]
-
+    [cond-exp 
+      (conditions (list-of expression?))
+      (thens (list-of expression?))]
   [begin-exp 
     (bodies (list-of expression?))]
   )
@@ -184,7 +186,11 @@
         			   (lambda-improp-exp '() (2nd datum) (map parse-exp (cddr datum)))
         			   (eopl:error 'parse-exp "lambda variable must be a symbol"))])
         		(eopl:error 'parse-exp "lambda expression too short: ~s" datum))]
-        
+        [(eqv? (1st datum) 'cond)
+            (let ([conditions (map (lambda (x) (parse-exp (car x))) (cdr datum))]
+                  [thens (map (lambda (x) (parse-exp (2nd x))) (cdr datum))]) 
+            (cond-exp conditions thens)
+          )]
         [else (app-exp (parse-exp (1st datum)) (map parse-exp (cdr datum)))])]
       [else (eopl:error 'parse-exp "bad expression: ~s" datum)])))
 
@@ -293,10 +299,10 @@
 ;                       |
 ;-----------------------+
 
-(define syntax-expand (lambda (exp)[
+(define syntax-expand (lambda (exp)
   (cases expression exp
-    [lit-exp (id) (lit-exp id)]
-    [var-exp (id) (var-exp id)]
+    [lit-exp (id) exp]
+    [var-exp (id) exp]
     [app-exp (rator rands) (app-exp (syntax-expand rator) (map syntax-expand rands))]
     [let-exp (vars vals bodies) (app-exp (lambda-exp vars (map syntax-expand bodies)) vals)]
     [lambda-exp (vars body) (lambda-exp vars (map syntax-expand body))]
@@ -304,9 +310,17 @@
     [if-exp (condit then-exp) (if-exp (syntax-expand condit) (syntax-expand then-exp))]
     [if-else-exp (condit then-exp else-exp) (if-else-exp (syntax-expand condit) (syntax-expand then-exp)(syntax-expand else-exp))]
     [set!-exp (setvars newval) (set!-exp setvars (syntax-expand newval))]
-    [begin-exp (bodies) (app-exp (lambda-exp '(x) (list (var-exp x))) (map syntax-expand bodies))]
+    [begin-exp (bodies) (syntax-expand (let-exp '() '() bodies))]
+    [cond-exp (conditions thens) 
+          (let loop ([remainingconds conditions] 
+                      [remainingthens thens])
+            (if (null? (cdr remainingconds))
+                (syntax-expand (1st remainingthens))
+                (if-else-exp (syntax-expand (1st remainingconds)) 
+                             (syntax-expand (1st remainingthens)) 
+                              (loop (cdr remainingconds) (cdr remainingthens)))))]
     [else exp]
-    )]))
+    )))
 
 
 
