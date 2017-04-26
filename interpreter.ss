@@ -42,7 +42,7 @@
    (vals (list-of expression?))
    (body (list-of expression?))]
    [lambda-exp
-    (vars (list-of symbol?))
+    (vars (or (list-of symbol?) symbol?))
     (body (list-of expression?))]
    [lambda-improp-exp
     (vars (list-of symbol?))
@@ -396,7 +396,7 @@
                               list? pair? procedure? vector->list vector make-vector 
                               vector-ref vector? number? symbol? set-car! set-cdr! 
                               vector-set! display newline caar cadr cdar cddr
-                              caaar caadr cadar cdaar caddr cdadr cddar cdddr ))
+                              caaar caadr cadar cdaar caddr cdadr cddar cdddr apply map))
 
 (define init-env         ; for now, our initial global environment only contains 
   (extend-env            ; procedure names.  Recall that an environment associates
@@ -439,14 +439,14 @@
       [(pair?)(pair? args)]
       [(procedure?)(or (proc-val? (1st args)) (procedure? (1st args)))]
       [(vector->list)(vector->list (1st args))] 
-      [(vector)(vector args)] 
+      [(vector)(apply vector args)] 
       [(make-vector)(make-vector (1st args))]
       [(vector-ref)(vector-ref (1st args) (2nd args))]
       [(vector?) (vector? (1st args))] 
       [(number?)(number? (1st args))] 
       [(symbol?)(symbol? (1st args))] 
       [(set-car!) (apply set-car! args)]
-      [(set-cdr!) (apply set-cdr! args)]
+      [(set-cdr!) (apply set-car! args)]
       [(vector-set!) (apply vector-set! args)]
       [(display)(display (1st args))] 
       [(newline)(newline)] 
@@ -462,6 +462,8 @@
       [(cdadr) (cdadr (1st args))]
       [(cddar) (cddar (1st args))]
       [(cdddr) (cdddr (1st args))]
+      [(map) (map (lst args) (cdr args))]
+      [(apply) (apply-proc (1st args) (eval-exp (cdr args)))]
       [else (error 'apply-prim-proc 
             "Bad primitive procedure name: ~s" 
             prim-proc)])))
