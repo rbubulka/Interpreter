@@ -63,6 +63,10 @@
     [cond-exp 
       (conditions (list-of expression?))
       (thens (list-of expression?))]
+    [and-exp
+      (bodies (list-of expression?))]
+    [or-exp
+      (bodies (list-of expression?))]
   [begin-exp 
     (bodies (list-of expression?))]
   )
@@ -191,6 +195,8 @@
                   [thens (map (lambda (x) (parse-exp (2nd x))) (cdr datum))]) 
             (cond-exp conditions thens)
           )]
+        [(eqv? (1st datum) 'and)(and-exp (map parse-exp (cdr datum)))]
+        [(eqv? (1st datum) 'or)(or-exp (map parse-exp (cdr datum)))]
         [else (app-exp (parse-exp (1st datum)) (map parse-exp (cdr datum)))])]
       [else (eopl:error 'parse-exp "bad expression: ~s" datum)])))
 
@@ -319,6 +325,18 @@
                 (if-else-exp (syntax-expand (1st remainingconds)) 
                              (syntax-expand (1st remainingthens)) 
                               (loop (cdr remainingconds) (cdr remainingthens)))))]
+    [and-exp (bodies) (let loop ([remaining bodies])
+                                (if (null? remaining) 
+                                    (lit-exp #t)
+                                    (if-else-exp  (syntax-expand (1st remaining))
+                                                  (loop (cdr remaining))
+                                                  (lit-exp #f))))]
+    [or-exp (bodies) (let loop ([remaining bodies])
+                                (if (null? remaining) 
+                                    (lit-exp #f)
+                                    (if-else-exp  (syntax-expand (1st remaining))
+                                                  (syntax-expand (1st remaining))
+                                                  (loop (cdr remaining)))))]
     [else exp]
     )))
 
