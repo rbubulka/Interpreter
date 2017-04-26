@@ -41,9 +41,12 @@
    (vars (list-of symbol?))
    (vals (list-of expression?))
    (body (list-of expression?))]
-   ;Lambdas Need to come back and do the improper list lambda
    [lambda-exp
     (vars (list-of symbol?))
+    (body (list-of expression?))]
+   [lambda-improp-exp
+    (vars (list-of symbol?))
+    (improps symbol?)
     (body (list-of expression?))]
    ;Ifs
    [if-exp
@@ -83,6 +86,11 @@
    (name (lambda (x) (list? (member x *prim-proc-names*))))]
   [proc
    (args (list-of symbol?))
+   (bodies (list-of expression?))
+   (envir environment?)]
+  [improp-proc
+   (args (list-of symbol?))
+   (rest symbol?)
    (bodies (list-of expression?))
    (envir environment?)])
 	 
@@ -160,12 +168,15 @@
           (if   (>= (length datum) 3)
 		(cond
 		 [(null? (2nd datum)) (lambda-exp (2nd datum) (map parse-exp (cddr datum)))] 
-		 [(list? (2nd datum)) 
-		  (if ((list-of symbol?) (2nd datum)) 
-		      (lambda-exp (2nd datum) (map parse-exp (cddr datum)))
-		      (eopl:error 'parse-exp "all variables must be symbols: ~s" datum))]
+		 [(pair? (2nd datum))
+		  (let loop ([end (2nd datum)] [req '()]) 
+		    (if (null? (cdr end))
+			(lambda-exp (2nd datum) (map parse-exp (cddr datum)))
+			(if (not (pair? (cdr end)))
+			    (lambda-improp-exp (append req (list (car end))) (cdr end)  (map parse-exp (cddr datum)))
+			    (loop (cdr end) (append req (list (car end)))))))]
 		 [else (if (symbol? (2nd datum))
-			   (lambda-exp (2nd datum) (map parse-exp (cddr datum)))
+			   (lambda-improp-exp '() (2nd datum) (map parse-exp (cddr datum)))
 			   (eopl:error 'parse-exp "lambda variable must be a symbol"))])
 		(eopl:error 'parse-exp "lambda expression too short: ~s" datum))]
         [else (app-exp (parse-exp (1st datum)) (map parse-exp (cdr datum)))])]
@@ -317,14 +328,14 @@
 			   id)))] 
       [app-exp (rator rands)
 	       (let ([proc-value (eval-exp rator env)]
-		     [var (if (var-exp? (car rands)) (unparse-exp (car rands)) (car rands))]
 		     [args (eval-rands rands env)])
 		 (if (proc-val? proc-value)
-		     (apply-proc proc-value args var env)
+		     (apply-proc proc-value args env)
 		     (eopl:error 'eval-exp "Rator is not a procedure: ~a" rator)))]
       [if-else-exp (condition then-exp else-exp) (if (eval-exp condition env) (eval-exp then-exp env) (eval-exp else-exp env))]
       [if-exp (condition then-exp) (if (eval-exp condition) (eval-exp then-exp env))]
       [lambda-exp (vars bodies) (proc vars bodies env)]
+      [lambda-improp-exp (vars improps bodies) (improp-proc vars improps bodies env)]
       [let-exp (vars vals bodies) 
               (let ([envior (extend-env vars (let loop ([v vals]) 
                       (if (null? v)
@@ -357,9 +368,9 @@
 ;  User-defined procedures will be added later.
 
 (define apply-proc
-  (lambda (proc-value args var env)
+  (lambda (proc-value args env)
     (cases proc-val proc-value
-      [prim-proc (op) (apply-prim-proc op args var env)]
+      [prim-proc (op) (apply-prim-proc op args env)]
 			; You will add other cases
       [proc (xs bodies envir)
 	    (let loop ([bds bodies] [xp (extend-env xs args envir)])
@@ -367,6 +378,15 @@
 		  (eval-exp (car bds) xp)
 		  (begin (eval-exp (car bds) xp)
 			 (loop (cdr bds) xp))))]
+      [improp-proc (x rest bodies envir)
+		   (let loop ([bds bodies] [xp (let loop1 ([xs x] [as args] [vars '()] [vals '()])
+						 (if (null? xs)
+						     (extend-env (append vars (list rest)) (append vals (list as)) envir)
+						     (loop1 (cdr xs) (cdr as) (append vars (list (car xs))) (append vals (list (car as))))))])
+		     (if (null? (cdr bds))
+			 (eval-exp (car bds) xp)
+			 (begin (eval-exp (car bds) xp)
+				(loop (cdr bds) xp))))]
       [else (eopl:error 'apply-proc
                    "Attempt to apply bad procedure: ~s" 
                     proc-value)])))
@@ -389,7 +409,7 @@
 ; built-in procedure individually.  We are "cheating" a little bit.
 
 (define apply-prim-proc
-  (lambda (prim-proc args var env)
+  (lambda (prim-proc args env)
     (case prim-proc
       [(+) (apply + args)]
       [(-) (apply - args)]
@@ -427,8 +447,7 @@
       [(symbol?)(symbol? (1st args))] 
       [(set-car!) (apply set-car! args)]
       [(set-cdr!) (apply set-cdr! args)]
-      [(vector-set!) (apply-env env var (lambda (x) (vector-set! x (2nd args) (3rd args)))
-			       (lambda (x) (eopl:error 'vector-set! "~s is not defined in environment." var)))]
+      [(vector-set!) (apply vector-set! args)]
       [(display)(display (1st args))] 
       [(newline)(newline)] 
       [(caar) (caar (1st args))]
