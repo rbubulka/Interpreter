@@ -42,7 +42,7 @@
    (vals (list-of expression?))
    (body (list-of expression?))]
    [lambda-exp
-    (vars (or (list-of symbol?) symbol?))
+    (vars (list-of symbol?))
     (body (list-of expression?))]
    [lambda-improp-exp
     (vars (list-of symbol?))
@@ -60,6 +60,9 @@
    [set!-exp
     (setvars symbol?)
     (newval expression?)]
+
+  [begin-exp 
+    (bodies (list-of expression?))]
   )
 
 	
@@ -138,6 +141,8 @@
       [(pair? datum)
         (cond 
         ;[non primitive procedures will go here]
+        [(eqv? (1st datum) 'begin)
+          (begin-exp (map parse-exp (cdr datum)))]
         [(eqv? (1st datum) 'if)
           (cond [(= (length datum) 4)
                     (if-else-exp (parse-exp (2nd datum)) (parse-exp (3rd datum)) (parse-exp (4th datum)))]
@@ -166,19 +171,20 @@
                       (eopl:error 'parse-exp "named-let must have a body: ~s" datum))))]     
         [(eqv? (car datum) 'lambda)
           (if   (>= (length datum) 3)
-		(cond
-		 [(null? (2nd datum)) (lambda-exp (2nd datum) (map parse-exp (cddr datum)))] 
-		 [(pair? (2nd datum))
-		  (let loop ([end (2nd datum)] [req '()]) 
-		    (if (null? (cdr end))
-			(lambda-exp (2nd datum) (map parse-exp (cddr datum)))
-			(if (not (pair? (cdr end)))
-			    (lambda-improp-exp (append req (list (car end))) (cdr end)  (map parse-exp (cddr datum)))
-			    (loop (cdr end) (append req (list (car end)))))))]
-		 [else (if (symbol? (2nd datum))
-			   (lambda-improp-exp '() (2nd datum) (map parse-exp (cddr datum)))
-			   (eopl:error 'parse-exp "lambda variable must be a symbol"))])
-		(eopl:error 'parse-exp "lambda expression too short: ~s" datum))]
+        		(cond
+        		 [(null? (2nd datum)) (lambda-exp (2nd datum) (map parse-exp (cddr datum)))] 
+        		 [(pair? (2nd datum))
+        		  (let loop ([end (2nd datum)] [req '()]) 
+        		    (if (null? (cdr end))
+        			(lambda-exp (2nd datum) (map parse-exp (cddr datum)))
+        			(if (not (pair? (cdr end)))
+        			    (lambda-improp-exp (append req (list (car end))) (cdr end)  (map parse-exp (cddr datum)))
+        			    (loop (cdr end) (append req (list (car end)))))))]
+        		 [else (if (symbol? (2nd datum))
+        			   (lambda-improp-exp '() (2nd datum) (map parse-exp (cddr datum)))
+        			   (eopl:error 'parse-exp "lambda variable must be a symbol"))])
+        		(eopl:error 'parse-exp "lambda expression too short: ~s" datum))]
+        
         [else (app-exp (parse-exp (1st datum)) (map parse-exp (cdr datum)))])]
       [else (eopl:error 'parse-exp "bad expression: ~s" datum)])))
 
@@ -287,9 +293,20 @@
 ;                       |
 ;-----------------------+
 
-
-
-; To be added later
+(define syntax-expand (lambda (exp)[
+  (cases expression exp
+    [lit-exp (id) (lit-exp id)]
+    [var-exp (id) (var-exp id)]
+    [app-exp (rator rands) (app-exp (syntax-expand rator) (map syntax-expand rands))]
+    [let-exp (vars vals bodies) (app-exp (lambda-exp vars (map syntax-expand bodies)) vals)]
+    [lambda-exp (vars body) (lambda-exp vars (map syntax-expand body))]
+    [lambda-improp-exp (vars improps body) (lambda-improp-exp vars improps (map syntax-expand body))]
+    [if-exp (condit then-exp) (if-exp (syntax-expand condit) (syntax-expand then-exp))]
+    [if-else-exp (condit then-exp else-exp) (if-else-exp (syntax-expand condit) (syntax-expand then-exp)(syntax-expand else-exp))]
+    [set!-exp (setvars newval) (set!-exp setvars (syntax-expand newval))]
+    [begin-exp (bodies) (app-exp (lambda-exp '(x) (list (var-exp x))) (map syntax-expand bodies))]
+    [else exp]
+    )]))
 
 
 
@@ -333,7 +350,7 @@
 		     (apply-proc proc-value args env)
 		     (eopl:error 'eval-exp "Rator is not a procedure: ~a" rator)))]
       [if-else-exp (condition then-exp else-exp) (if (eval-exp condition env) (eval-exp then-exp env) (eval-exp else-exp env))]
-      [if-exp (condition then-exp) (if (eval-exp condition) (eval-exp then-exp env))]
+      [if-exp (condition then-exp) (if (eval-exp condition env) (eval-exp then-exp env))]
       [lambda-exp (vars bodies) (proc vars bodies env)]
       [lambda-improp-exp (vars improps bodies) (improp-proc vars improps bodies env)]
       [let-exp (vars vals bodies) 
@@ -447,7 +464,7 @@
       [(symbol?)(symbol? (1st args))] 
       [(set-car!) (apply set-car! args)]
       [(set-cdr!) (apply set-car! args)]
-      [(vector-set!) (apply vector-set! args)]
+      [(vector-set!) (vector-set! (1st args) (2nd args) (3rd args))]
       [(display)(display (1st args))] 
       [(newline)(newline)] 
       [(caar) (caar (1st args))]
@@ -472,13 +489,13 @@
   (lambda ()
     (display "--> ")
     ;; notice that we don't save changes to the environment...
-    (let ([answer (top-level-eval (parse-exp (read)) (empty-env))])
+    (let ([answer (top-level-eval (syntax-expand (parse-exp (read))) (empty-env))])
       ;; TODO: are there answers that should display differently?
       (eopl:pretty-print answer) (newline)
       (rep))))  ; tail-recursive, so stack doesn't grow.
 
 (define eval-one-exp
-  (lambda (x) (top-level-eval (parse-exp x) (empty-env))))
+  (lambda (x) (top-level-eval (syntax-expand (parse-exp x)) (empty-env))))
 
 
 
