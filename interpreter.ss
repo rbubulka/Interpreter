@@ -462,7 +462,7 @@
       [(cdadr) (cdadr (1st args))]
       [(cddar) (cddar (1st args))]
       [(cdddr) (cdddr (1st args))]
-      [(map) (map (lambda (x) (apply-proc (1st args) x env)) (cdr args))]
+      [(map) (map (lambda (x) (apply-proc (1st args) (list x) env)) (2nd args))]
       [(apply) (apply-proc (1st args) (2nd args) env)]
       [else (error 'apply-prim-proc 
             "Bad primitive procedure name: ~s" 
