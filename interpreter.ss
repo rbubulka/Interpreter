@@ -19,7 +19,7 @@
     (lambda (x)
       (ormap 
        (lambda (pred) (pred x))
-       (list number? vector? boolean? symbol? string? pair? null?))))]
+       (list number? vector? boolean? symbol? string? pair? null? (lambda (x) (eqv? (void) x))))))]
   [app-exp        ; applications
    (rator expression?)
    (rands (list-of expression?))]
@@ -73,6 +73,9 @@
       (tocompare expression?)
       (conditions (list-of expression?))
       (thens (list-of expression?))]
+    [while-exp
+      (condition expression?)
+      (body (list-of expression?))]
   )
 
 	
@@ -147,6 +150,7 @@
       [(boolean? datum) (lit-exp datum)]
       [(vector? datum) (lit-exp datum)]
       [(string? datum) (lit-exp datum)]
+      [(eq? (void) datum) (lit-exp datum)]
       [(eqv? (1st datum) 'quote) (lit-exp (2nd datum))]
       [(pair? datum)
         (cond 
@@ -224,8 +228,9 @@
 					      (eopl:error 'parse-exp "all variables must be symbols ~s" datum))
 					  (eopl:error 'parse-exp "all variable definitions must be list of size two" datum))) (2nd datum)))]
 		(let*-exp (map 1st variableseval) (map 2nd variableseval) (map parse-exp (cddr datum)))))]
-	 [else (app-exp (parse-exp (1st datum)) (map parse-exp (cdr datum)))])]
-      [else (eopl:error 'parse-exp "bad expression: ~s" datum)])))
+	 [(eqv? (1st datum) 'while) (while-exp (parse-exp (2nd datum)) (map parse-exp (cddr datum)))]
+   [else (app-exp (parse-exp (1st datum)) (map parse-exp (cdr datum)))])]
+    [else (eopl:error 'parse-exp "bad expression: ~s" datum)])))
 
 
 ;-------------------+
@@ -347,8 +352,10 @@
     [cond-exp (conditions thens) ;come back and fix in the event of no else statement
           (let loop ([remainingconds conditions] 
                       [remainingthens thens])
-            (if (null? (cdr remainingconds))
-                (syntax-expand (1st remainingthens))
+            (if (or (null? remainingconds) (equal? (1st remainingconds) (var-exp 'else)))
+                (if (null? remainingconds) 
+                    (lit-exp (void))
+                    (syntax-expand (1st remainingthens))) 
                 (if-else-exp (syntax-expand (1st remainingconds)) 
                              (syntax-expand (1st remainingthens)) 
                               (loop (cdr remainingconds) (cdr remainingthens)))))]
@@ -429,6 +436,10 @@
                           '()
                           (cons (eval-exp (1st v) env) (loop (cdr v))))) env)])
         (get-last (map-first (lambda (x) (eval-exp x envior)) bodies)))]
+      [while-exp (condition bodies)
+                    (if (eval-exp condition env)
+                        (begin (map-first (lambda (x) (eval-exp x env)) bodies) 
+                                (eval-exp exp env)))]
       [else (eopl:error 'eval-exp "Bad abstract syntax: ~a" exp)])))
 
 (define map-first
@@ -483,7 +494,7 @@
                               list? pair? procedure? vector->list vector make-vector 
                               vector-ref vector? number? symbol? set-car! set-cdr! 
                               vector-set! display newline caar cadr cdar cddr
-                              caaar caadr cadar cdaar caddr cdadr cddar cdddr apply map))
+                              caaar caadr cadar cdaar caddr cdadr cddar cdddr apply map quotient))
 
 (define init-env         ; for now, our initial global environment only contains 
   (extend-env            ; procedure names.  Recall that an environment associates
@@ -552,6 +563,7 @@
       [(cdddr) (cdddr (1st args))]
       [(map) (map (lambda (x) (apply-proc (1st args) (list x) env)) (2nd args))]
       [(apply) (apply-proc (1st args) (2nd args) env)]
+      [(quotient) (quotient (1st args) (2nd args))]
       [else (error 'apply-prim-proc 
             "Bad primitive procedure name: ~s" 
             prim-proc)])))
