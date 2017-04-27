@@ -200,18 +200,18 @@
             (cond-exp conditions thens)
           )]
         [(eqv? (1st datum) 'case)
-            (let ([bodies (let loop ([args (cddr datum)])
-              (if (null? args) 
-                  '()
-                  (if (list? (1st (1st args)))
-                      (append (let loop2 ( [conditionlist (1st (1st args))]
-                                                    [thencopy (list (parse-exp (2nd (1st args)))])
-                                          (if (null? (cdr conditionlist)) 
-                                              (list (parse-exp (car conditionlist)) thencopy)
-                                              (cons (list (parse-exp (car conditionlist)) thencopy) 
-                                                    (loop2 (cdr conditionlist) thencopy)))) (loop (cdr args)))  
-                  (cons (list (parse-exp (car (1st args))) (list (parse-exp (2nd (1st args))))) (loop (cdr args))))))])
-            (case-exp (parse-exp (2nd datum)) (map 1st bodies) (map 2nd bodies)))]
+	 (let ([bodies (let loop ([args (cddr datum)])
+			 (if (null? args) 
+			     '()
+			     (if (list? (1st (1st args)))
+				 (append (let loop2 ( [conditionlist (1st (1st args))]
+						      [thencopy (list (parse-exp (2nd (1st args))))])
+					   (if (null? conditionlist) 
+					       '()
+					       (cons (list (parse-exp (car conditionlist)) thencopy) 
+						     (loop2 (cdr conditionlist) thencopy)))) (loop (cdr args)))  
+				 (cons (list (parse-exp (car (1st args))) (list (parse-exp (2nd (1st args))))) (loop (cdr args))))))])
+	   (case-exp (parse-exp (2nd datum)) (map 1st bodies) (map caadr bodies)))]
         [(eqv? (1st datum) 'and)(and-exp (map parse-exp (cdr datum)))]
         [(eqv? (1st datum) 'or)(or-exp (map parse-exp (cdr datum)))]
         [else (app-exp (parse-exp (1st datum)) (map parse-exp (cdr datum)))])]
