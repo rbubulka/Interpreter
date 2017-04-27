@@ -24,10 +24,14 @@
    (rator expression?)
    (rands (list-of expression?))]
    ;Lets
-   [let-exp 
+  [let-exp 
     (vars (list-of symbol?))
     (vals (list-of expression?))
     (body (list-of expression?))]
+  [let*-exp
+   (vars (list-of symbol?))
+   (vals (list-of expression?))
+   (body (list-of expression?))]
   [named-let-exp 
     (name symbol?)
     (vars (list-of symbol?))
@@ -37,10 +41,6 @@
     (vars (list-of symbol?))
     (vals (list-of expression?))
     (body (list-of expression?))]
-   [let*-exp
-   (vars (list-of symbol?))
-   (vals (list-of expression?))
-   (body (list-of expression?))]
    [lambda-exp
     (vars (list-of symbol?))
     (body (list-of expression?))]
@@ -151,70 +151,80 @@
       [(pair? datum)
         (cond 
         ;[non primitive procedures will go here]
-        [(eqv? (1st datum) 'begin)
+	 [(eqv? (1st datum) 'begin)
           (begin-exp (map parse-exp (cdr datum)))]
-        [(eqv? (1st datum) 'if)
+	 [(eqv? (1st datum) 'if)
           (cond [(= (length datum) 4)
-                    (if-else-exp (parse-exp (2nd datum)) (parse-exp (3rd datum)) (parse-exp (4th datum)))]
+		 (if-else-exp (parse-exp (2nd datum)) (parse-exp (3rd datum)) (parse-exp (4th datum)))]
                 [(= (length datum) 3)
-                    (if-exp (parse-exp (2nd datum)) (parse-exp (3rd datum)))]
+		 (if-exp (parse-exp (2nd datum)) (parse-exp (3rd datum)))]
                 [else (eopl:error 'parse-exp "invalid if statment: ~s" datum)])]
-        [(eqv? (car datum) 'let)
-            (if (< (length datum) 3) 
-                (eopl:error 'parse-exp "lets must have at least a list of variables and a body: ~s" datum)
-                (if (list? (2nd datum)) 
+	 [(eqv? (car datum) 'let)
+	  (if (< (length datum) 3) 
+	      (eopl:error 'parse-exp "lets must have at least a list of variables and a body: ~s" datum)
+	      (if (list? (2nd datum)) 
                   (let [(variableseval
-                              (map (lambda (x) (if (and (list? x) (=(length x) 2)) 
-                                                    (if (symbol? (1st x)) 
-                                                        (list (1st x) (parse-exp (2nd x))) 
-                                                        (eopl:error 'parse-exp "all variables must be symbols ~s" datum))
-                                                    (eopl:error 'parse-exp "all variable definitions must be list of size two" datum))) (2nd datum)))]
-                        (let-exp (map 1st variableseval) (map 2nd variableseval) (map parse-exp (cddr datum))))
+			 (map (lambda (x) (if (and (list? x) (=(length x) 2)) 
+					      (if (symbol? (1st x)) 
+						  (list (1st x) (parse-exp (2nd x))) 
+						  (eopl:error 'parse-exp "all variables must be symbols ~s" datum))
+					      (eopl:error 'parse-exp "all variable definitions must be list of size two" datum))) (2nd datum)))]
+		    (let-exp (map 1st variableseval) (map 2nd variableseval) (map parse-exp (cddr datum))))
                   (if (> (length datum) 3) 
                       (let [ (variableseval
-                                (map (lambda (x) (if (and (list? x) (=(length x) 2)) 
-                                                     (if (symbol? (1st x)) 
-                                                         (list (1st x) (parse-exp (2nd x)))
-                                                         (eopl:error 'parse-exp "all variables must be symbols: ~s" datum))
-                                                      (eopl:error 'parse-exp "all variable definitions must be list of size two: ~s" datum))) (3rd datum))) ]
-                            ( named-let-exp (2nd datum) (map car variableseval) (map 2nd variableseval) (map parse-exp (cddr datum))))
+			      (map (lambda (x) (if (and (list? x) (=(length x) 2)) 
+						   (if (symbol? (1st x)) 
+						       (list (1st x) (parse-exp (2nd x)))
+						       (eopl:error 'parse-exp "all variables must be symbols: ~s" datum))
+						   (eopl:error 'parse-exp "all variable definitions must be list of size two: ~s" datum))) (3rd datum))) ]
+			( named-let-exp (2nd datum) (map car variableseval) (map 2nd variableseval) (map parse-exp (cddr datum))))
                       (eopl:error 'parse-exp "named-let must have a body: ~s" datum))))]     
-        [(eqv? (car datum) 'lambda)
+	 [(eqv? (car datum) 'lambda)
           (if   (>= (length datum) 3)
-        		(cond
-        		 [(null? (2nd datum)) (lambda-exp (2nd datum) (map parse-exp (cddr datum)))] 
-        		 [(pair? (2nd datum))
-        		  (let loop ([end (2nd datum)] [req '()]) 
-        		    (if (null? (cdr end))
-        			(lambda-exp (2nd datum) (map parse-exp (cddr datum)))
-        			(if (not (pair? (cdr end)))
-        			    (lambda-improp-exp (append req (list (car end))) (cdr end)  (map parse-exp (cddr datum)))
-        			    (loop (cdr end) (append req (list (car end)))))))]
-        		 [else (if (symbol? (2nd datum))
-        			   (lambda-improp-exp '() (2nd datum) (map parse-exp (cddr datum)))
-        			   (eopl:error 'parse-exp "lambda variable must be a symbol"))])
-        		(eopl:error 'parse-exp "lambda expression too short: ~s" datum))]
-        [(eqv? (1st datum) 'cond)
-            (let ([conditions (map (lambda (x) (parse-exp (car x))) (cdr datum))]
-                  [thens (map (lambda (x) (parse-exp (2nd x))) (cdr datum))]) 
+		(cond
+		 [(null? (2nd datum)) (lambda-exp (2nd datum) (map parse-exp (cddr datum)))] 
+		 [(pair? (2nd datum))
+		  (let loop ([end (2nd datum)] [req '()]) 
+		    (if (null? (cdr end))
+			(lambda-exp (2nd datum) (map parse-exp (cddr datum)))
+			(if (not (pair? (cdr end)))
+			    (lambda-improp-exp (append req (list (car end))) (cdr end)  (map parse-exp (cddr datum)))
+			    (loop (cdr end) (append req (list (car end)))))))]
+		 [else (if (symbol? (2nd datum))
+			   (lambda-improp-exp '() (2nd datum) (map parse-exp (cddr datum)))
+			   (eopl:error 'parse-exp "lambda variable must be a symbol"))])
+		(eopl:error 'parse-exp "lambda expression too short: ~s" datum))]
+	 [(eqv? (1st datum) 'cond)
+	  (let ([conditions (map (lambda (x) (parse-exp (car x))) (cdr datum))]
+		[thens (map (lambda (x) (parse-exp (2nd x))) (cdr datum))]) 
             (cond-exp conditions thens)
-          )]
-        [(eqv? (1st datum) 'case)
-	 (let ([bodies (let loop ([args (cddr datum)])
-			 (if (null? args) 
-			     '()
-			     (if (list? (1st (1st args)))
-				 (append (let loop2 ( [conditionlist (1st (1st args))]
-						      [thencopy (list (parse-exp (2nd (1st args))))])
-					   (if (null? conditionlist) 
-					       '()
-					       (cons (list (parse-exp (car conditionlist)) thencopy) 
-						     (loop2 (cdr conditionlist) thencopy)))) (loop (cdr args)))  
-				 (cons (list (parse-exp (car (1st args))) (list (parse-exp (2nd (1st args))))) (loop (cdr args))))))])
-	   (case-exp (parse-exp (2nd datum)) (map 1st bodies) (map caadr bodies)))]
-        [(eqv? (1st datum) 'and)(and-exp (map parse-exp (cdr datum)))]
-        [(eqv? (1st datum) 'or)(or-exp (map parse-exp (cdr datum)))]
-        [else (app-exp (parse-exp (1st datum)) (map parse-exp (cdr datum)))])]
+	    )]
+	 [(eqv? (1st datum) 'case)
+	  (let ([bodies (let loop ([args (cddr datum)])
+			  (if (null? args) 
+			      '()
+			      (if (list? (1st (1st args)))
+				  (append (let loop2 ( [conditionlist (1st (1st args))]
+						       [thencopy (list (parse-exp (2nd (1st args))))])
+					    (if (null? conditionlist) 
+						'()
+						(cons (list (parse-exp (car conditionlist)) thencopy) 
+						      (loop2 (cdr conditionlist) thencopy)))) (loop (cdr args)))  
+				  (cons (list (parse-exp (car (1st args))) (list (parse-exp (2nd (1st args))))) (loop (cdr args))))))])
+	    (case-exp (parse-exp (2nd datum)) (map 1st bodies) (map caadr bodies)))]
+	 [(eqv? (1st datum) 'and)(and-exp (map parse-exp (cdr datum)))]
+	 [(eqv? (1st datum) 'or)(or-exp (map parse-exp (cdr datum)))]
+	 [(eqv? (1st datum) 'let*)
+	  (if (< (length datum) 3) 
+	      (eopl:error 'parse-exp "let*s must have at least a list of variables and a body: ~s" datum)
+	      (let [(variableseval
+		     (map (lambda (x) (if (and (list? x) (=(length x) 2)) 
+					  (if (symbol? (1st x)) 
+					      (list (1st x) (parse-exp (2nd x))) 
+					      (eopl:error 'parse-exp "all variables must be symbols ~s" datum))
+					  (eopl:error 'parse-exp "all variable definitions must be list of size two" datum))) (2nd datum)))]
+		(let*-exp (map 1st variableseval) (map 2nd variableseval) (map parse-exp (cddr datum)))))]
+	 [else (app-exp (parse-exp (1st datum)) (map parse-exp (cdr datum)))])]
       [else (eopl:error 'parse-exp "bad expression: ~s" datum)])))
 
 
@@ -361,6 +371,10 @@
                                               (if-else-exp (app-exp (var-exp 'eqv?) (list (syntax-expand tocompare) (syntax-expand (1st remainingconds))))
                                                             (syntax-expand (1st remainingthens))
                                                             (loop (cdr remainingconds) (cdr remainingthens)))))]
+    [let*-exp (vars vals bodies) (let loop ([var vars] [val vals])
+				   (if (null? (cdr var))
+				       (app-exp (lambda-exp (list (car var)) (map syntax-expand bodies)) (list (syntax-expand (car val))))
+				       (app-exp (lambda-exp (list (car var)) (list (loop (cdr var) (cdr val)))) (list (syntax-expand (car val))))))] 
     [else exp]
     )))
 
