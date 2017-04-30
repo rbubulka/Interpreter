@@ -39,7 +39,7 @@
    (body (list-of expression?))]
   [letrec-exp 
    (procs (list-of symbol?))
-   (proc-vars (list-of (list-of expression?)))
+   (proc-vars (list-of (list-of symbol?)))
    (proc-bodies (list-of (list-of expression?)))
    (body (list-of expression?))]
   [lambda-exp
@@ -191,8 +191,8 @@
 						  (list (1st x) (parse-exp (2nd x))) 
 						  (eopl:error 'parse-exp "all variables must be symbols ~s" datum))
 					      (eopl:error 'parse-exp "all variable definitions must be list of size two" datum))) (2nd datum)))]
-		    (letrec-exp (map 1st variableseval) (map (lambda (x) (get-letrec-args x variableseval)) variableseval) 
-				(map (lambda (x) (get-letrec-bodies x variableseval)) variableseval) (map parse-exp (cddr datum)))))]
+		    (letrec-exp (map 1st variableseval) (map (lambda (x) (map 1st variableseval)) variableseval) 
+				(map (lambda (x) (map 2nd variableseval)) variableseval) (map parse-exp (cddr datum)))))]
 	 [(eqv? (car datum) 'lambda)
           (if   (>= (length datum) 3)
 		(cond
@@ -335,7 +335,7 @@
 (define extend-env-recursively
   (lambda (procs proc-vars proc-bodies old-env)
     (let ([len (length procs)])
-      (let ([ls (vector->list (make-vector len))])
+      (let ([ls (iota len)])
 	(let ([env (extend-env procs ls old-env)])
 	  (for-each
 	   (lambda (pos var body)
@@ -345,7 +345,7 @@
 	   proc-bodies)
 	  (for-each
 	   (lambda (pos)
-	     (let ([x (list-ref pos ls)])
+	     (let ([x (list-ref ls pos)])
 	       (cases proc-val? x
 		      [proc (args bodies ev)
 			    (set! bodies (map (lambda (x) (eval-exp x ev)) bodies))]
@@ -496,7 +496,7 @@
 
 (define map-first
   (lambda (f x)
-    (let loop ([val (f (car x))])
+    (let ([val (f (car x))])
       (if (null? (cdr x))
 	  (list val)
 	  (cons val (map-first f (cdr x)))))))
