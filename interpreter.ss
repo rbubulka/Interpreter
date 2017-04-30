@@ -33,49 +33,50 @@
    (vals (list-of expression?))
    (body (list-of expression?))]
   [named-let-exp 
-    (name symbol?)
-    (vars (list-of symbol?))
-    (vals (list-of expression?))
-    (body (list-of expression?))]
-   [letrec-exp 
-    (vars (list-of symbol?))
-    (vals (list-of expression?))
-    (body (list-of expression?))]
-   [lambda-exp
-    (vars (list-of symbol?))
-    (body (list-of expression?))]
-   [lambda-improp-exp
-    (vars (list-of symbol?))
-    (improps symbol?)
-    (body (list-of expression?))]
-   ;Ifs
-   [if-exp
-    (condition expression?)
-    (then-exp expression?)]
-   [if-else-exp
-    (condition expression?)
-    (then-exp expression?)
-    (else-exp expression?)] 
+   (name symbol?)
+   (vars (list-of symbol?))
+   (vals (list-of expression?))
+   (body (list-of expression?))]
+  [letrec-exp 
+   (procs (list-of symbol?))
+   (proc-vars (list-of (list-of expression?)))
+   (proc-bodies (list-of (list-of expression?)))
+   (body (list-of expression?))]
+  [lambda-exp
+   (vars (list-of symbol?))
+   (body (list-of expression?))]
+  [lambda-improp-exp
+   (vars (list-of symbol?))
+   (improps symbol?)
+   (body (list-of expression?))]
+  ;Ifs
+  [if-exp
+   (condition expression?)
+   (then-exp expression?)]
+  [if-else-exp
+   (condition expression?)
+   (then-exp expression?)
+   (else-exp expression?)] 
    ;set
-   [set!-exp
-    (setvars symbol?)
-    (newval expression?)]
-    [cond-exp 
-      (conditions (list-of expression?))
-      (thens (list-of expression?))]
-    [and-exp
-      (bodies (list-of expression?))]
-    [or-exp
-      (bodies (list-of expression?))]
-    [begin-exp 
-      (bodies (list-of expression?))]
-    [case-exp 
-      (tocompare expression?)
-      (conditions (list-of expression?))
-      (thens (list-of expression?))]
-    [while-exp
-      (condition expression?)
-      (body (list-of expression?))]
+  [set!-exp
+   (setvars symbol?)
+   (newval expression?)]
+  [cond-exp 
+   (conditions (list-of expression?))
+   (thens (list-of expression?))]
+  [and-exp
+   (bodies (list-of expression?))]
+  [or-exp
+   (bodies (list-of expression?))]
+  [begin-exp 
+   (bodies (list-of expression?))]
+  [case-exp 
+   (tocompare expression?)
+   (conditions (list-of expression?))
+   (thens (list-of expression?))]
+  [while-exp
+   (condition expression?)
+   (body (list-of expression?))]
   )
 
 	
@@ -140,7 +141,6 @@
 	   [let-exp (vars vals bodies) #t]
 	   [else #f])))
 
-
 (define parse-exp         
   (lambda (datum)
     (cond
@@ -181,8 +181,18 @@
 						       (list (1st x) (parse-exp (2nd x)))
 						       (eopl:error 'parse-exp "all variables must be symbols: ~s" datum))
 						   (eopl:error 'parse-exp "all variable definitions must be list of size two: ~s" datum))) (3rd datum))) ]
-			( named-let-exp (2nd datum) (map car variableseval) (map 2nd variableseval) (map parse-exp (cddr datum))))
-                      (eopl:error 'parse-exp "named-let must have a body: ~s" datum))))]     
+			(named-let-exp (2nd datum) (map car variableseval) (map 2nd variableseval) (map parse-exp (cddr datum))))
+                      (eopl:error 'parse-exp "named-let must have a body: ~s" datum))))]  
+	 [(eqv? (car datum) 'letrec)
+	  (if (< (length datum) 3) (eopl:error 'parse-exp "lets must have at least a list of variables and a body: ~s" datum)
+	      (let [(variableseval
+			 (map (lambda (x) (if (and (list? x) (=(length x) 2)) 
+					      (if (symbol? (1st x)) 
+						  (list (1st x) (parse-exp (2nd x))) 
+						  (eopl:error 'parse-exp "all variables must be symbols ~s" datum))
+					      (eopl:error 'parse-exp "all variable definitions must be list of size two" datum))) (2nd datum)))]
+		    (letrec-exp (map 1st variableseval) (map (lambda (x) (get-letrec-args x variableseval)) variableseval) 
+				(map (lambda (x) (get-letrec-bodies x variableseval)) variableseval) (map parse-exp (cddr datum)))))]
 	 [(eqv? (car datum) 'lambda)
           (if   (>= (length datum) 3)
 		(cond
@@ -231,6 +241,18 @@
 	 [(eqv? (1st datum) 'while) (while-exp (parse-exp (2nd datum)) (map parse-exp (cddr datum)))]
    [else (app-exp (parse-exp (1st datum)) (map parse-exp (cdr datum)))])]
     [else (eopl:error 'parse-exp "bad expression: ~s" datum)])))
+
+(define get-letrec-args
+  (lambda (var varlist)
+    (if (eq? (car var) (caar varlist))
+	(list (car var))
+	(cons (caar varlist) (get-letrec-args var (cdr varlist))))))
+
+(define get-letrec-bodies
+  (lambda (var varlist)
+    (if (eq? (car var) (caar varlist))
+	(list (cadr var))
+	(cons (cadar varlist) (get-letrec-bodies var (cdr varlist))))))
 
 
 ;-------------------+
@@ -309,6 +331,33 @@
 	     (if (number? list-index-r)
 		 (+ 1 list-index-r)
 		 #f))))))
+
+(define extend-env-recursively
+  (lambda (procs proc-vars proc-bodies old-env)
+    (let ([len (length procs)])
+      (let ([ls (vector->list (make-vector len))])
+	(let ([env (extend-env procs ls old-env)])
+	  (for-each
+	   (lambda (pos var body)
+	     (list-set! ls pos (proc var body env)))
+	   (iota len)
+	   proc-vars
+	   proc-bodies)
+	  (for-each
+	   (lambda (pos)
+	     (let ([x (list-ref pos ls)])
+	       (cases proc-val? x
+		      [proc (args bodies ev)
+			    (set! bodies (map (lambda (x) (eval-exp x ev)) bodies))]
+		      )))
+	   (iota len))
+  	  env)))))
+
+(define list-set!
+  (lambda (ls pos val)
+    (if (zero? pos)
+	(set-car! ls val)
+	(list-set! (cdr ls) (- pos 1) val))))
 
 (define apply-env
   (lambda (e sym succeed fail)
@@ -436,6 +485,9 @@
                           '()
                           (cons (eval-exp (1st v) env) (loop (cdr v))))) env)])
         (get-last (map-first (lambda (x) (eval-exp x envior)) bodies)))]
+      [letrec-exp (procs proc-vars proc-bodies body)
+		  (let ([env (extend-env-recursively procs proc-vars proc-bodies env)])
+		    (get-last (map-first (lambda (x) (eval-exp x env)) body)))]
       [while-exp (condition bodies)
                     (if (eval-exp condition env)
                         (begin (map-first (lambda (x) (eval-exp x env)) bodies) 
