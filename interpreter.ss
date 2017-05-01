@@ -88,11 +88,16 @@
   (lambda (x) #t))
 
 (define-datatype environment environment?
-  (empty-env-record)
-  (extended-env-record
+  [empty-env-record]
+  [extended-env-record
    (syms (list-of symbol?))
    (vals (list-of scheme-value?))
-   (env environment?)))
+   (env environment?)]
+  [recursively-extended-env-record
+      (proc-names (list-of symbol?))
+      (proc-vars (list-of (list-of symbol?)))
+      (proc-bodies (list-of (list-of expression?)))
+      (env environment?)])
 
 ; datatype for procedures.  At first there is only one
 ; kind of procedure, but more kinds will be added later.
@@ -186,13 +191,17 @@
 	 [(eqv? (car datum) 'letrec)
 	  (if (< (length datum) 3) (eopl:error 'parse-exp "lets must have at least a list of variables and a body: ~s" datum)
 	      (let [(variableseval
-			 (map (lambda (x) (if (and (list? x) (=(length x) 2)) 
-					      (if (symbol? (1st x)) 
-						  (list (1st x) (parse-exp (2nd x))) 
-						  (eopl:error 'parse-exp "all variables must be symbols ~s" datum))
-					      (eopl:error 'parse-exp "all variable definitions must be list of size two" datum))) (2nd datum)))]
-		    (letrec-exp (map 1st variableseval) (map (lambda (x) (map 1st variableseval)) variableseval) 
-				(map (lambda (x) (map 2nd variableseval)) variableseval) (map parse-exp (cddr datum)))))]
+          			 (map (lambda (x) (if (and (list? x) (=(length x) 2)) 
+          					      (if (symbol? (1st x)) 
+          						  (list (1st x) (2nd x)) 
+          						  (eopl:error 'parse-exp "all variables must be symbols ~s" datum))
+          					      (eopl:error 'parse-exp "all variable definitions must be list of size two" datum))) (2nd datum)))]
+		    (letrec-exp (map 1st variableseval) 
+                    (map (lambda (x) (if (eqv? (caadr x) 'lambda)(2nd (2nd x)) '())) variableseval);list of variables for the lambdas of the values of the letrecvariables
+                    (map (lambda (x) (if (eqv? (caadr x) 'lambda)
+                                          (map parse-exp (cddr (2nd x))) 
+                                          (list (lambda-exp '() (map parse-exp (2nd x)))))) variableseval) ;after the variables shold be all the bodies 
+                    (map parse-exp (cddr datum)))))]
 	 [(eqv? (car datum) 'lambda)
           (if   (>= (length datum) 3)
 		(cond
@@ -318,6 +327,10 @@
   (lambda (syms vals env)
     (extended-env-record syms vals env)))
 
+(define extend-env-recursively 
+  (lambda (proc-names proc-vars proc-bodies old-env)[
+    recursively-extended-env-record proc-names proc-vars proc-bodies old-env]))
+
 (define list-find-position
   (lambda (sym los)
     (list-index (lambda (xsym) (eqv? sym xsym)) los)))
@@ -332,27 +345,6 @@
 		 (+ 1 list-index-r)
 		 #f))))))
 
-(define extend-env-recursively
-  (lambda (procs proc-vars proc-bodies old-env)
-    (let ([len (length procs)])
-      (let ([ls (iota len)])
-	(let ([env (extend-env procs ls old-env)])
-	  (for-each
-	   (lambda (pos var body)
-	     (list-set! ls pos (proc var body env)))
-	   (iota len)
-	   proc-vars
-	   proc-bodies)
-	  (for-each
-	   (lambda (pos)
-	     (let ([x (list-ref ls pos)])
-	       (cases proc-val? x
-		      [proc (args bodies ev)
-			    (set! bodies (map (lambda (x) (eval-exp x ev)) bodies))]
-		      )))
-	   (iota len))
-  	  env)))))
-
 (define list-set!
   (lambda (ls pos val)
     (if (zero? pos)
@@ -363,23 +355,27 @@
   (lambda (e sym succeed fail)
     (let ae ([tag 0] [ev e])
       (cases environment ev      
-	     [empty-env-record () 
+	      [empty-env-record () 
 			       (if (equal? tag 0)
 				   (ae 1 init-env)
 				   (fail))]
-	     [extended-env-record (syms vals env)
+	      [extended-env-record (syms vals env)
 				  (let ((pos (list-find-position sym syms)))
 				    (if (number? pos)
 					(succeed (list-ref vals pos))
-					(ae tag env)))]))))
+					(ae tag env)))]
+        [recursively-extended-env-record (proc-names proc-vars proc-bodies old-env)
+          (let ([pos (list-find-position sym proc-names)])
+            (if (number? pos)
+                (proc (list-ref proc-vars pos) 
+                          (list-ref proc-bodies pos) e)
+                (apply-env old-env sym succeed fail)))]))))
 
-
-
-
-
-
-
-
+(define list-find-position (lambda (sym ls)[cond
+  [(null? ls) #f]
+  [(eqv? sym (1st ls)) 0]
+  [else (let ([pos (list-find-position sym (cdr ls))]) (if(number? pos) (add1 pos) pos))]
+  ]))
 ;-----------------------+
 ;                       |
 ;   SYNTAX EXPANSION    |
@@ -392,6 +388,7 @@
     [var-exp (id) exp]
     [app-exp (rator rands) (app-exp (syntax-expand rator) (map syntax-expand rands))]
     [let-exp (vars vals bodies) (app-exp (lambda-exp vars (map syntax-expand bodies)) vals)]
+    [letrec-exp (procs proc-vars proc-bodies body) (letrec-exp procs proc-vars (map (lambda (x) (map syntax-expand x)) proc-bodies) (map syntax-expand body))]
     [lambda-exp (vars body) (lambda-exp vars (map syntax-expand body))]
     [lambda-improp-exp (vars improps body) (lambda-improp-exp vars improps (map syntax-expand body))]
     [if-exp (condit then-exp) (if-exp (syntax-expand condit) (syntax-expand then-exp))]
@@ -417,7 +414,7 @@
     [or-exp (bodies) (let loop ([remaining bodies])
                                 (if (null? remaining) 
                                     (lit-exp #f)
-                                    (if-else-exp  (syntax-expand (1st remaining))
+                                    (if-else-exp  (syntax-expand (1st remaining)) ;this does not quite work we need to not have the body in the check in the case and the body
                                                   (syntax-expand (1st remaining))
                                                   (loop (cdr remaining)))))]
     [case-exp (tocompare conditions thens)(let loop ([remainingconds conditions]
@@ -431,6 +428,8 @@
 				   (if (null? (cdr var))
 				       (app-exp (lambda-exp (list (car var)) (map syntax-expand bodies)) (list (syntax-expand (car val))))
 				       (app-exp (lambda-exp (list (car var)) (list (loop (cdr var) (cdr val)))) (list (syntax-expand (car val))))))] 
+    [named-let-exp (procs proc-vars proc-bodies bodies)]
+
     [else exp]
     )))
 
@@ -486,8 +485,7 @@
                           (cons (eval-exp (1st v) env) (loop (cdr v))))) env)])
         (get-last (map-first (lambda (x) (eval-exp x envior)) bodies)))]
       [letrec-exp (procs proc-vars proc-bodies body)
-		  (let ([env (extend-env-recursively procs proc-vars proc-bodies env)])
-		    (get-last (map-first (lambda (x) (eval-exp x env)) body)))]
+              (eval-rands body (extend-env-recursively procs proc-vars proc-bodies env))]
       [while-exp (condition bodies)
                     (if (eval-exp condition env)
                         (begin (map-first (lambda (x) (eval-exp x env)) bodies) 
