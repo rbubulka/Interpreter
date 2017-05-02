@@ -39,7 +39,7 @@
    (body (list-of expression?))]
   [letrec-exp 
    (procs (list-of symbol?))
-   (proc-vars (list-of (list-of symbol?)))
+   (proc-vars (list-of (pair-of symbol?)))
    (proc-bodies (list-of (list-of expression?)))
    (body (list-of expression?))]
   [lambda-exp
@@ -79,10 +79,19 @@
    (body (list-of expression?))]
   )
 
-	
-	
-
-;; environment type definitions
+(define pair-of
+  (lambda (pred?)
+    (lambda (obj)
+      (let loop ((obj obj))
+	(if (null? obj)
+	    #t
+	    (if (pair? obj)
+		(if (pred? (car obj))
+		    (loop (cdr obj))
+		    #f)
+		(if (symbol? obj)
+		    #t
+		    #f)))))))
 
 (define scheme-value?
   (lambda (x) #t))
@@ -95,7 +104,7 @@
    (env environment?)]
   [recursively-extended-env-record
       (proc-names (list-of symbol?))
-      (proc-vars (list-of (list-of symbol?)))
+      (proc-vars (list-of (pair-of symbol?)))
       (proc-bodies (list-of (list-of expression?)))
       (env environment?)])
 
@@ -199,8 +208,8 @@
 		    (letrec-exp (map 1st variableseval) 
 				(map (lambda (x) (if (eqv? (caadr x) 'lambda)(2nd (2nd x)) '())) variableseval);list of variables for the lambdas of the values of the letrecvariables
 				(map (lambda (x) (if (eqv? (caadr x) 'lambda)
-						     (map parse-exp (cddr (2nd x)));(cdr x)) 
-						     (map parse-exp (2nd x)))) variableseval) ;(list (lambda-exp '() (map parse-exp (2nd x)))))) variableseval) ;after the variables shold be all the bodies 
+						     (map parse-exp (cddr (2nd x))) 
+						     (map parse-exp (2nd x)))) variableseval)  ;after the variables shold be all the bodies 
 				(map parse-exp (cddr datum)))))]
 	 [(eqv? (car datum) 'lambda)
           (if   (>= (length datum) 3)
@@ -367,8 +376,12 @@
         [recursively-extended-env-record (proc-names proc-vars proc-bodies old-env)
           (let ([pos (list-find-position sym proc-names)])
             (if (number? pos)
-                (proc (list-ref proc-vars pos) 
+		(if ((list-of symbol?) (list-ref proc-vars pos))
+		    (proc (list-ref proc-vars pos)
                           (list-ref proc-bodies pos) e)
+		    (improp-proc (not-last-improp (list-ref proc-vars pos))
+				 (get-last (list-ref proc-vars pos))
+				 (list-ref proc-bodies pos) e))
                 (apply-env old-env sym succeed fail)))]))))
 
 (define list-find-position (lambda (sym ls)[cond
@@ -376,6 +389,13 @@
   [(eqv? sym (1st ls)) 0]
   [else (let ([pos (list-find-position sym (cdr ls))]) (if(number? pos) (add1 pos) pos))]
   ]))
+
+(define not-last-improp
+  (lambda (ls)
+    (if (pair? ls)
+	(cons (car ls) (not-last-improp (cdr ls)))
+	'())))
+	
 ;-----------------------+
 ;                       |
 ;   SYNTAX EXPANSION    |
@@ -501,9 +521,11 @@
 
 (define get-last
   (lambda (x)
-    (if (null? (cdr x))
-	(car x)
-	(get-last (cdr x)))))
+    (if (symbol? x)
+	x
+	(if (null? (cdr x))
+	    (car x)
+	    (get-last (cdr x))))))
 
 ; evaluate the list of operands, putting results into a list
 
@@ -544,7 +566,7 @@
                               list? pair? procedure? vector->list vector make-vector 
                               vector-ref vector? number? symbol? set-car! set-cdr! 
                               vector-set! display newline caar cadr cdar cddr
-                              caaar caadr cadar cdaar caddr cdadr cddar cdddr apply map quotient))
+                              caaar caadr cadar cdaar caddr cdadr cddar cdddr apply map quotient append list-tail))
 
 (define init-env         ; for now, our initial global environment only contains 
   (extend-env            ; procedure names.  Recall that an environment associates
@@ -566,6 +588,7 @@
       [(add1) (+ (1st args) 1)]
       [(sub1) (- (1st args) 1)]
       [(cons) (cons (1st args) (2nd args))]
+      [(append) (append (1st args) (2nd args))]
       [(=) (= (1st args) (2nd args))]
       [(zero?) (zero? (1st args))]
       [(not) (not (1st args))]
@@ -614,6 +637,7 @@
       [(map) (map (lambda (x) (apply-proc (1st args) (list x) env)) (2nd args))]
       [(apply) (apply-proc (1st args) (2nd args) env)]
       [(quotient) (quotient (1st args) (2nd args))]
+      [(list-tail) (apply list-tail args)]
       [else (error 'apply-prim-proc 
             "Bad primitive procedure name: ~s" 
             prim-proc)])))
