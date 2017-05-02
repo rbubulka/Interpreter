@@ -186,7 +186,7 @@
 						       (list (1st x) (parse-exp (2nd x)))
 						       (eopl:error 'parse-exp "all variables must be symbols: ~s" datum))
 						   (eopl:error 'parse-exp "all variable definitions must be list of size two: ~s" datum))) (3rd datum))) ]
-			(named-let-exp (2nd datum) (map car variableseval) (map 2nd variableseval) (map parse-exp (cddr datum))))
+			(named-let-exp (2nd datum) (map car variableseval) (map 2nd variableseval) (map parse-exp (cdddr datum))))
                       (eopl:error 'parse-exp "named-let must have a body: ~s" datum))))]  
 	 [(eqv? (car datum) 'letrec)
 	  (if (< (length datum) 3) (eopl:error 'parse-exp "lets must have at least a list of variables and a body: ~s" datum)
@@ -197,11 +197,11 @@
           						  (eopl:error 'parse-exp "all variables must be symbols ~s" datum))
           					      (eopl:error 'parse-exp "all variable definitions must be list of size two" datum))) (2nd datum)))]
 		    (letrec-exp (map 1st variableseval) 
-                    (map (lambda (x) (if (eqv? (caadr x) 'lambda)(2nd (2nd x)) '())) variableseval);list of variables for the lambdas of the values of the letrecvariables
-                    (map (lambda (x) (if (eqv? (caadr x) 'lambda)
-                                          (map parse-exp (cddr (2nd x))) 
-                                          (list (lambda-exp '() (map parse-exp (2nd x)))))) variableseval) ;after the variables shold be all the bodies 
-                    (map parse-exp (cddr datum)))))]
+				(map (lambda (x) (if (eqv? (caadr x) 'lambda)(2nd (2nd x)) '())) variableseval);list of variables for the lambdas of the values of the letrecvariables
+				(map (lambda (x) (if (eqv? (caadr x) 'lambda)
+						     (map parse-exp (cddr (2nd x)));(cdr x)) 
+						     (map parse-exp (2nd x)))) variableseval) ;(list (lambda-exp '() (map parse-exp (2nd x)))))) variableseval) ;after the variables shold be all the bodies 
+				(map parse-exp (cddr datum)))))]
 	 [(eqv? (car datum) 'lambda)
           (if   (>= (length datum) 3)
 		(cond
@@ -428,7 +428,7 @@
 				   (if (null? (cdr var))
 				       (app-exp (lambda-exp (list (car var)) (map syntax-expand bodies)) (list (syntax-expand (car val))))
 				       (app-exp (lambda-exp (list (car var)) (list (loop (cdr var) (cdr val)))) (list (syntax-expand (car val))))))] 
-    [named-let-exp (name vars vals bodies) (syntax-expand (letrec-exp (list name) (list vars) (list (list (lambda-exp vars bodies))) (list (app-exp (var-exp name) vals))))]
+    [named-let-exp (name vars vals bodies) (syntax-expand (letrec-exp (list name) (list vars) (list bodies) (list (app-exp (var-exp name) vals))))]
 
     [else exp]
     )))
@@ -485,7 +485,7 @@
                           (cons (eval-exp (1st v) env) (loop (cdr v))))) env)])
         (get-last (map-first (lambda (x) (eval-exp x envior)) bodies)))]
       [letrec-exp (procs proc-vars proc-bodies body)
-              (eval-rands body (extend-env-recursively procs proc-vars proc-bodies env))]
+              (get-last (eval-rands body (extend-env-recursively procs proc-vars proc-bodies env)))]
       [while-exp (condition bodies)
                     (if (eval-exp condition env)
                         (begin (map-first (lambda (x) (eval-exp x env)) bodies) 
