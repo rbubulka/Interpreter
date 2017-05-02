@@ -428,7 +428,7 @@
 				   (if (null? (cdr var))
 				       (app-exp (lambda-exp (list (car var)) (map syntax-expand bodies)) (list (syntax-expand (car val))))
 				       (app-exp (lambda-exp (list (car var)) (list (loop (cdr var) (cdr val)))) (list (syntax-expand (car val))))))] 
-    [named-let-exp (procs proc-vars proc-bodies bodies)]
+    [named-let-exp (name vars vals bodies) (syntax-expand (letrec-exp (list name) (list vars) (list (list (lambda-exp vars bodies))) (list (app-exp (var-exp name) vals))))]
 
     [else exp]
     )))
