@@ -49,6 +49,7 @@
    (vars (list-of symbol?))
    (improps symbol?)
    (body (list-of expression?))]
+
   ;Ifs
   [if-exp
    (condition expression?)
@@ -59,8 +60,11 @@
    (else-exp expression?)] 
    ;set
   [set!-exp
-   (setvars symbol?)
-   (newval expression?)]
+    (var symbol?)
+    (value expression?)]
+  [define-exp
+    (var symbol?)
+    (body expression?)]
   [cond-exp 
    (conditions (list-of expression?))
    (thens (list-of expression?))]
@@ -96,11 +100,24 @@
 (define scheme-value?
   (lambda (x) #t))
 
+(define cell? 
+  (lambda (obj) 
+    (box? obj)))
+(define cell
+  (lambda (val)
+    (box val)))
+(define cell-set!
+  (lambda (cell val) 
+    (set-box! cell val)))
+(define cell-ref
+  (lambda (cell)
+    (unbox cell)))
+
 (define-datatype environment environment?
   [empty-env-record]
   [extended-env-record
    (syms (list-of symbol?))
-   (vals (list-of scheme-value?))
+   (vals (list-of box?))
    (env environment?)]
   [recursively-extended-env-record
       (proc-names (list-of symbol?))
@@ -123,7 +140,8 @@
    (args (list-of symbol?))
    (rest symbol?)
    (bodies (list-of expression?))
-   (envir environment?)])
+   (envir environment?)]
+   )
 	 
 	
 
@@ -195,7 +213,10 @@
 						       (list (1st x) (parse-exp (2nd x)))
 						       (eopl:error 'parse-exp "all variables must be symbols: ~s" datum))
 						   (eopl:error 'parse-exp "all variable definitions must be list of size two: ~s" datum))) (3rd datum))) ]
-			(named-let-exp (2nd datum) (map car variableseval) (map 2nd variableseval) (map parse-exp (cdddr datum))))
+			(named-let-exp (2nd datum) 
+                      (map car variableseval) 
+                      (map 2nd variableseval) 
+                      (map parse-exp (cdddr datum))))
                       (eopl:error 'parse-exp "named-let must have a body: ~s" datum))))]  
 	 [(eqv? (car datum) 'letrec)
 	  (if (< (length datum) 3) (eopl:error 'parse-exp "lets must have at least a list of variables and a body: ~s" datum)
@@ -246,6 +267,10 @@
 	    (case-exp (parse-exp (2nd datum)) (map 1st bodies) (map caadr bodies)))]
 	 [(eqv? (1st datum) 'and)(and-exp (map parse-exp (cdr datum)))]
 	 [(eqv? (1st datum) 'or)(or-exp (map parse-exp (cdr datum)))]
+   [(eqv? (car datum) 'set!)
+            (set!-exp (cadr datum) (parse-exp (caddr datum)))]
+   [(eqv? (car datum) 'define)
+                (define-exp (2nd datum) (parse-exp (3rd datum)))]
 	 [(eqv? (1st datum) 'let*)
 	  (if (< (length datum) 3) 
 	      (eopl:error 'parse-exp "let*s must have at least a list of variables and a body: ~s" datum)
@@ -334,11 +359,15 @@
 
 (define extend-env
   (lambda (syms vals env)
-    (extended-env-record syms vals env)))
+    (extended-env-record syms (map cell vals) env)))
 
 (define extend-env-recursively 
   (lambda (proc-names proc-vars proc-bodies old-env)[
     recursively-extended-env-record proc-names proc-vars proc-bodies old-env]))
+
+(define extend-env-ref
+  (lambda (syms vals env)
+    (extended-env-record syms vals env)))
 
 (define list-find-position
   (lambda (sym los)
@@ -361,28 +390,56 @@
 	(list-set! (cdr ls) (- pos 1) val))))
 
 (define apply-env
-  (lambda (e sym succeed fail)
-    (let ae ([tag 0] [ev e])
-      (cases environment ev      
-	      [empty-env-record () 
-			       (if (equal? tag 0)
-				   (ae 1 init-env)
-				   (fail))]
-	      [extended-env-record (syms vals env)
-				  (let ((pos (list-find-position sym syms)))
-				    (if (number? pos)
-					(succeed (list-ref vals pos))
-					(ae tag env)))]
-        [recursively-extended-env-record (proc-names proc-vars proc-bodies old-env)
-          (let ([pos (list-find-position sym proc-names)])
-            (if (number? pos)
-		(if ((list-of symbol?) (list-ref proc-vars pos))
-		    (proc (list-ref proc-vars pos)
-                          (list-ref proc-bodies pos) e)
-		    (improp-proc (not-last-improp (list-ref proc-vars pos))
-				 (get-last (list-ref proc-vars pos))
-				 (list-ref proc-bodies pos) e))
-                (apply-env old-env sym succeed fail)))]))))
+  (lambda (env sym succeed fail)
+    (deref (apply-env-ref env sym succeed fail))))
+
+(define deref (lambda (x) (if (cell? x) (cell-ref x) x)))
+
+; (define apply-env
+;   (lambda (e sym succeed fail)
+;     (let ae ([tag 0] [ev e])
+;       (cases environment ev      
+; 	      [empty-env-record () 
+; 			       (if (equal? tag 0)
+; 				   (ae 1 init-env)
+; 				   (fail))]
+; 	      [extended-env-record (syms vals env)
+; 				  (let ((pos (list-find-position sym syms)))
+; 				    (if (number? pos)
+; 					(succeed (list-ref vals pos))
+; 					(ae tag env)))]
+;         [recursively-extended-env-record (proc-names proc-vars proc-bodies old-env)
+;           (let ([pos (list-find-position sym proc-names)])
+;             (if (number? pos)
+; 		(if ((list-of symbol?) (list-ref proc-vars pos))
+; 		    (proc (list-ref proc-vars pos)
+;                           (list-ref proc-bodies pos) e)
+; 		    (improp-proc (not-last-improp (list-ref proc-vars pos))
+; 				 (get-last (list-ref proc-vars pos))
+; 				 (list-ref proc-bodies pos) e))
+;                 (apply-env old-env sym succeed fail)))]))))
+
+(define apply-env-ref 
+  (lambda (env sym succeed fail) 
+    (cases environment env
+      [empty-env-record ()
+        (let ((pos (list-find-position sym (cadr global-env))))
+          (if (number? pos)
+              (list-ref (caddr global-env) pos)
+              (fail)))]
+      
+      [extended-env-record (syms vals env)
+        (let ((pos (list-find-position sym syms)))
+          (if (number? pos)
+              (list-ref vals pos)
+              (apply-env-ref env sym succeed fail)))]
+      
+      [recursively-extended-env-record (proc-names proc-ids proc-bodies old-env)
+        (let ((pos (list-find-position sym proc-names)))
+          (if (number? pos)
+              (cell (proc (list-ref proc-ids pos) (list (list-ref proc-bodies pos)) env))
+              (apply-env-ref old-env sym succeed fail)))])))
+
 
 (define list-find-position (lambda (sym ls)[cond
   [(null? ls) #f]
@@ -396,6 +453,7 @@
 	(cons (car ls) (not-last-improp (cdr ls)))
 	'())))
 	
+  (define set-ref! cell-set!)
 ;-----------------------+
 ;                       |
 ;   SYNTAX EXPANSION    |
@@ -407,7 +465,7 @@
     [lit-exp (id) exp]
     [var-exp (id) exp]
     [app-exp (rator rands) (app-exp (syntax-expand rator) (map syntax-expand rands))]
-    [let-exp (vars vals bodies) (app-exp (lambda-exp vars (map syntax-expand bodies)) vals)]
+    [let-exp (vars vals bodies) (app-exp (lambda-exp vars (map syntax-expand bodies)) (map syntax-expand vals))]
     [letrec-exp (procs proc-vars proc-bodies body) (letrec-exp procs proc-vars (map (lambda (x) (map syntax-expand x)) proc-bodies) (map syntax-expand body))]
     [lambda-exp (vars body) (lambda-exp vars (map syntax-expand body))]
     [lambda-improp-exp (vars improps body) (lambda-improp-exp vars improps (map syntax-expand body))]
@@ -425,18 +483,24 @@
                 (if-else-exp (syntax-expand (1st remainingconds)) 
                              (syntax-expand (1st remainingthens)) 
                               (loop (cdr remainingconds) (cdr remainingthens)))))]
+    
+
     [and-exp (bodies) (let loop ([remaining bodies])
                                 (if (null? remaining) 
                                     (lit-exp #t)
-                                    (if-else-exp  (syntax-expand (1st remaining))
-                                                  (loop (cdr remaining))
-                                                  (lit-exp #f))))]
+                                    (let ([value (syntax-expand (1st remaining))])
+                                          (let-exp (list 'andvalue) (list value)
+                                                    (list (if-else-exp (var-exp 'andvalue)
+                                                                        (loop (cdr remaining))
+                                                                        (var-exp 'andvalue)))))))]
     [or-exp (bodies) (let loop ([remaining bodies])
                                 (if (null? remaining) 
                                     (lit-exp #f)
-                                    (if-else-exp  (syntax-expand (1st remaining)) ;this does not quite work we need to not have the body in the check in the case and the body
-                                                  (syntax-expand (1st remaining))
-                                                  (loop (cdr remaining)))))]
+                                    (let ([value (syntax-expand (1st remaining))])
+                                          (let-exp (list 'orvalue) (list value)
+                                                    (list (if-else-exp (var-exp 'orvalue)
+                                                                        (var-exp 'orvalue)
+                                                                        (loop (cdr remaining))))))))]
     [case-exp (tocompare conditions thens)(let loop ([remainingconds conditions]
                                                       [remainingthens thens])
                                           (if (null? (cdr remainingconds))
@@ -449,7 +513,8 @@
 				       (app-exp (lambda-exp (list (car var)) (map syntax-expand bodies)) (list (syntax-expand (car val))))
 				       (app-exp (lambda-exp (list (car var)) (list (loop (cdr var) (cdr val)))) (list (syntax-expand (car val))))))] 
     [named-let-exp (name vars vals bodies) (syntax-expand (letrec-exp (list name) (list vars) (list bodies) (list (app-exp (var-exp name) vals))))]
-
+    [define-exp (var body)
+        (define-exp var (map syntax-expand body))]
     [else exp]
     )))
 
@@ -462,7 +527,7 @@
 
 
 ;-------------------+
-;                   |
+;                   |varvarvarvar
 ;   INTERPRETER    |
 ;                   |
 ;-------------------+
@@ -498,18 +563,23 @@
       [if-exp (condition then-exp) (if (eval-exp condition env) (eval-exp then-exp env))]
       [lambda-exp (vars bodies) (proc vars bodies env)]
       [lambda-improp-exp (vars improps bodies) (improp-proc vars improps bodies env)]
-      [let-exp (vars vals bodies) 
-              (let ([envior (extend-env vars (let loop ([v vals]) 
-                      (if (null? v)
-                          '()
-                          (cons (eval-exp (1st v) env) (loop (cdr v))))) env)])
-        (get-last (map-first (lambda (x) (eval-exp x envior)) bodies)))]
       [letrec-exp (procs proc-vars proc-bodies body)
               (get-last (eval-rands body (extend-env-recursively procs proc-vars proc-bodies env)))]
       [while-exp (condition bodies)
                     (if (eval-exp condition env)
                         (begin (map-first (lambda (x) (eval-exp x env)) bodies) 
                                 (eval-exp exp env)))]
+      [define-exp (var val)
+    (apply-env-ref env var (lambda (x) eopl:error "attempt to redefine a variable")
+                 (extended-env-record (syms vals env)
+                      (begin
+                      (set! global-env (extend-env (cons var syms)
+                      (cons (eval-exp val env) (map unbox vals))
+                      (empty-env))))))]
+      [set!-exp (var body)
+          (set-box!
+            (apply-env-ref env var (lambda (x) x) (lambda () (eopl:error "inputvariable not located")))
+            (eval-exp body env))]
       [else (eopl:error 'eval-exp "Bad abstract syntax: ~a" exp)])))
 
 (define map-first
@@ -518,6 +588,7 @@
       (if (null? (cdr x))
 	  (list val)
 	  (cons val (map-first f (cdr x)))))))
+
 
 (define get-last
   (lambda (x)
@@ -543,11 +614,11 @@
       [prim-proc (op) (apply-prim-proc op args env)]
 			; You will add other cases
       [proc (xs bodies envir)
-	    (let loop ([bds bodies] [xp (extend-env xs args envir)])
+	    (let loop ([bds (eval-rands bodies env)] [xp (extend-env xs args envir)])
 	      (if (null? (cdr bds))
-		  (eval-exp (car bds) xp)
-		  (begin (eval-exp (car bds) xp)
-			 (loop (cdr bds) xp))))]
+        		  (eval-exp (car bds) xp)
+        		  (begin (eval-exp (car bds) xp)
+        			 (loop (cdr bds) xp))))]
       [improp-proc (x rest bodies envir)
 		   (let loop ([bds bodies] [xp (let loop1 ([xs x] [as args] [vars '()] [vals '()])
 						 (if (null? xs)
@@ -560,6 +631,18 @@
       [else (eopl:error 'apply-proc
                    "Attempt to apply bad procedure: ~s" 
                     proc-value)])))
+
+(define get-refd-syms (lambda (syms isrefs res)[
+  cond
+    [(null? syms) (reverse res)]
+    [(car key) (get-refd-syms (cdr syms) (cdr keys) (cons (car syms) res))]
+    [else (get-refd-syms (cdr syms) (cdr keys) res)]]))
+
+(define get-non-refd-syms (lambda (syms isrefs res)[
+  cond
+    [(null? syms) (reverse res)]
+    [(car key) (get-non-refd-syms (cdr syms) (cdr keys) res)]
+    [else (get-non-refd-syms (cdr syms) (cdr keys) (cons (car syms) res))]]))
 
 (define *prim-proc-names* '(+ - * / add1 sub1 zero? not = < > <= >= cons car cdr 
                               list null? assq eq? eqv? equal? atom? length list->vector
@@ -574,6 +657,16 @@
      (map prim-proc      
           *prim-proc-names*)
      (empty-env)))
+
+(define global-env init-env)
+
+(define reset-global-env
+  (lambda () (set! init-env
+    (extend-env
+      *prim-proc-names*
+      (map prim-proc
+        *prim-proc-names*)
+      (empty-env)))))
 
 ; Usually an interpreter must define each 
 ; built-in procedure individually.  We are "cheating" a little bit.
@@ -600,7 +693,7 @@
       [(cdr) (cdr (1st args))]
       [(list) args]
       [(null?) (null? (1st args))] 
-      [(assq) (assq (1st args) (2nd args))] 
+      [(assq) (apply assq args)] 
       [(eq?) (eq? (1st args) (2nd args))]
       [(eqv?) (eqv? (1st args) (2nd args))] 
       [(equal?) (equal? (1st args) (2nd args))] 
