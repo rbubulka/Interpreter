@@ -437,7 +437,7 @@
       [recursively-extended-env-record (proc-names proc-ids proc-bodies old-env)
         (let ((pos (list-find-position sym proc-names)))
           (if (number? pos)
-              (cell (proc (list-ref proc-ids pos) (list (list-ref proc-bodies pos)) env))
+              (cell (proc (list-ref proc-ids pos) (list-ref proc-bodies pos) env))
               (apply-env-ref old-env sym succeed fail)))])))
 
 
@@ -514,7 +514,7 @@
 				       (app-exp (lambda-exp (list (car var)) (list (loop (cdr var) (cdr val)))) (list (syntax-expand (car val))))))] 
     [named-let-exp (name vars vals bodies) (syntax-expand (letrec-exp (list name) (list vars) (list bodies) (list (app-exp (var-exp name) vals))))]
     [define-exp (var body)
-        (define-exp var body)]
+        (define-exp var (syntax-expand body))]
     [else exp]
     )))
 
@@ -565,11 +565,12 @@
                                 (eval-exp exp env)))]
       [define-exp (var val)
 	(apply-env-ref env var (lambda (x) (eopl:error "attempt to redefine a variable"))
-		       (lambda () (set! global-env (cases environment? global-env
+		       (lambda () (set! global-env (cases environment global-env
 							  (extended-env-record (syms vals old-env)
 									       (extended-env-record (cons var syms)
-												    (map box (cons (eval-exp val env) (map unbox vals)))
-												    old-env))))))]
+												    (map cell (cons (eval-exp val env) (map unbox vals)))
+												    old-env))
+							  (else (eopl:error 'define-exp "Bad global environment"))))))]
       [set!-exp (var body)
           (set-box!
             (apply-env-ref env var (lambda (x) x) (lambda () (eopl:error "inputvariable not located")))
