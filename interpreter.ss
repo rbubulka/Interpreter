@@ -425,19 +425,19 @@
       [empty-env-record ()
         (let ((pos (list-find-position sym (cadr global-env))))
           (if (number? pos)
-              (list-ref (caddr global-env) pos)
+              (succeed (list-ref (caddr global-env) pos))
               (fail)))]
       
       [extended-env-record (syms vals env)
         (let ((pos (list-find-position sym syms)))
           (if (number? pos)
-              (list-ref vals pos)
+              (succeed (list-ref vals pos))
               (apply-env-ref env sym succeed fail)))]
       
       [recursively-extended-env-record (proc-names proc-ids proc-bodies old-env)
         (let ((pos (list-find-position sym proc-names)))
           (if (number? pos)
-              (cell (proc (list-ref proc-ids pos) (list-ref proc-bodies pos) env))
+              (succeed (cell (proc (list-ref proc-ids pos) (list-ref proc-bodies pos) env)))
               (apply-env-ref old-env sym succeed fail)))])))
 
 
@@ -521,8 +521,8 @@
 
 
 ;-------------------+
-;                   |varvarvarvar
-;   INTERPRETER    |
+;                   |
+;   INTERPRETER     |
 ;                   |
 ;-------------------+
 
@@ -564,7 +564,7 @@
                         (begin (map-first (lambda (x) (eval-exp x env)) bodies) 
                                 (eval-exp exp env)))]
       [define-exp (var val)
-	(apply-env-ref env var (lambda (x) (eopl:error "attempt to redefine a variable"))
+	(apply-env-ref env var (lambda (x) (cell-set! x (eval-exp val env)))
 		       (lambda () (set! global-env (cases environment global-env
 							  (extended-env-record (syms vals old-env)
 									       (extended-env-record (cons var syms)
@@ -644,7 +644,7 @@
 (define global-env init-env)
 
 (define reset-global-env
-  (lambda () (set! init-env
+  (lambda () (set! global-env
     (extend-env
       *prim-proc-names*
       (map prim-proc
