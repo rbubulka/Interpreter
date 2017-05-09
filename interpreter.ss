@@ -520,12 +520,6 @@
 
 
 
-
-
-
-
-
-
 ;-------------------+
 ;                   |varvarvarvar
 ;   INTERPRETER    |
@@ -574,8 +568,8 @@
                  (extended-env-record (syms vals env)
                       (begin
                       (set! global-env (extend-env (cons var syms)
-                      (cons (eval-exp val env) (map unbox vals))
-                      (empty-env))))))]
+                                                   (cons (eval-exp val env) (map unbox vals))
+                                                   (global-env))))))]
       [set!-exp (var body)
           (set-box!
             (apply-env-ref env var (lambda (x) x) (lambda () (eopl:error "inputvariable not located")))
@@ -614,7 +608,7 @@
       [prim-proc (op) (apply-prim-proc op args env)]
 			; You will add other cases
       [proc (xs bodies envir)
-	    (let loop ([bds (eval-rands bodies env)] [xp (extend-env xs args envir)])
+	    (let loop ([bds bodies] [xp (extend-env xs args envir)])
 	      (if (null? (cdr bds))
         		  (eval-exp (car bds) xp)
         		  (begin (eval-exp (car bds) xp)
@@ -631,18 +625,6 @@
       [else (eopl:error 'apply-proc
                    "Attempt to apply bad procedure: ~s" 
                     proc-value)])))
-
-(define get-refd-syms (lambda (syms isrefs res)[
-  cond
-    [(null? syms) (reverse res)]
-    [(car key) (get-refd-syms (cdr syms) (cdr keys) (cons (car syms) res))]
-    [else (get-refd-syms (cdr syms) (cdr keys) res)]]))
-
-(define get-non-refd-syms (lambda (syms isrefs res)[
-  cond
-    [(null? syms) (reverse res)]
-    [(car key) (get-non-refd-syms (cdr syms) (cdr keys) res)]
-    [else (get-non-refd-syms (cdr syms) (cdr keys) (cons (car syms) res))]]))
 
 (define *prim-proc-names* '(+ - * / add1 sub1 zero? not = < > <= >= cons car cdr 
                               list null? assq eq? eqv? equal? atom? length list->vector
