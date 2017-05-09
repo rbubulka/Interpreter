@@ -514,7 +514,7 @@
 				       (app-exp (lambda-exp (list (car var)) (list (loop (cdr var) (cdr val)))) (list (syntax-expand (car val))))))] 
     [named-let-exp (name vars vals bodies) (syntax-expand (letrec-exp (list name) (list vars) (list bodies) (list (app-exp (var-exp name) vals))))]
     [define-exp (var body)
-        (define-exp var (map syntax-expand body))]
+        (define-exp var body)]
     [else exp]
     )))
 
@@ -564,12 +564,12 @@
                         (begin (map-first (lambda (x) (eval-exp x env)) bodies) 
                                 (eval-exp exp env)))]
       [define-exp (var val)
-    (apply-env-ref env var (lambda (x) eopl:error "attempt to redefine a variable")
-                 (extended-env-record (syms vals env)
-                      (begin
-                      (set! global-env (extend-env (cons var syms)
-                                                   (cons (eval-exp val env) (map unbox vals))
-                                                   (global-env))))))]
+	(apply-env-ref env var (lambda (x) (eopl:error "attempt to redefine a variable"))
+		       (lambda () (set! global-env (cases environment? global-env
+							  (extended-env-record (syms vals old-env)
+									       (extended-env-record (cons var syms)
+												    (map box (cons (eval-exp val env) (map unbox vals)))
+												    old-env))))))]
       [set!-exp (var body)
           (set-box!
             (apply-env-ref env var (lambda (x) x) (lambda () (eopl:error "inputvariable not located")))
