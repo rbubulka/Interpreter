@@ -518,18 +518,18 @@
     [and-exp (bodies) (let loop ([remaining bodies])
                                 (if (null? remaining) 
                                     (lit-exp #t)
-                                    (let ([value (syntax-expand (1st remaining))])
-                                          (syntax-expand (let-exp (list 'andvalue) (list value)
-                                                    (list (if-else-exp (var-exp 'andvalue)
+                                    (let ([tempsym (gensym)][value (syntax-expand (1st remaining))])
+                                          (syntax-expand (let-exp (list tempsym) (list value)
+                                                    (list (if-else-exp (var-exp tempsym)
                                                                         (loop (cdr remaining))
-                                                                        (var-exp 'andvalue))))))))]
+                                                                        (var-exp tempsym))))))))]
     [or-exp (bodies) (let loop ([remaining bodies])
                                 (if (null? remaining) 
                                     (lit-exp #f)
-                                    (let ([value (syntax-expand (1st remaining))])
-                                          (syntax-expand(let-exp (list 'orvalue) (list value)
-                                              (list (if-else-exp (var-exp 'orvalue)
-                                                                  (var-exp 'orvalue)
+                                    (let ([tempsym (gensym)][value (syntax-expand (1st remaining))])
+                                          (syntax-expand(let-exp (list tempsym) (list value)
+                                              (list (if-else-exp (var-exp tempsym)
+                                                                  (var-exp tempsym)
                                                                   (loop (cdr remaining)))))))))]
     [case-exp (tocompare conditions thens)(let loop ([remainingconds conditions]
                                                       [remainingthens thens])
@@ -747,7 +747,7 @@
       [(length) (length (1st args))] 
       [(list->vector)(list->vector (1st args))]
       [(list?)(list? (1st args))]
-      [(pair?)(pair? args)]
+      [(pair?)(pair? (1st args))]
       [(procedure?)(or (proc-val? (1st args)) (procedure? (1st args)))]
       [(vector->list)(vector->list (1st args))] 
       [(vector)(apply vector args)] 
