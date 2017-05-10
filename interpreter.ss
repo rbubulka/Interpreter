@@ -245,14 +245,14 @@
     (cond
      [(null? (2nd datum)) (lambda-exp (2nd datum) (map parse-exp (cddr datum)))] 
      [(pair? (2nd datum))
-      (let loop ([end (2nd datum)] [req '()]) 
-        (if (null? (cdr end))
-            (lambda-exp (2nd datum) (map parse-exp (cddr datum)))
-            (if (ormap (lambda (x) (and (list? x) (eqv? (car x) 'ref))) end)
-                (lambda-ref-exp
-                    (get-ref-ids (2nd datum) '())
-                    (refpos (cadr datum) '())
-                    (map parse-exp (cddr datum)))
+       (if (ormap (lambda (x) (and (list? x) (eqv? (car x) 'ref))) (2nd datum))
+          (lambda-ref-exp
+              (get-ref-ids (2nd datum) '())
+              (refpos (cadr datum) '())
+              (map parse-exp (cddr datum)))
+          (let loop ([end (2nd datum)] [req '()]) 
+            (if (null? (cdr end))
+                (lambda-exp (2nd datum) (map parse-exp (cddr datum)))
                 (if (not (pair? (cdr end)))
                     (lambda-improp-exp (append req (list (car end))) (cdr end)  (map parse-exp (cddr datum)))
                     (loop (cdr end) (append req (list (car end))))))))]
@@ -664,9 +664,9 @@
                   (extend-env-ref 
                     refsyms 
                     (map (lambda (x) 
-                      (apply-env-ref env (2nd x) 
+                      (apply-env-ref env x
                         (lambda (x) x) 
-                        (lambda () eop:error 'apply-env "var not fount")))
+                        (lambda () (eopl:error 'apply-env "var not fount"))))
                     (get-refd-syms args isrefs '()))
                     partial-enviro)])
         (map-first (lambda (x) (eval-exp x complete-envior) body)))]
