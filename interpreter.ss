@@ -659,17 +659,18 @@
                 [refsyms (get-refd-syms syms isrefs '())]
                 [partial-enviro 
                   (extend-env nonrefs 
-                      (eval-rands (get-non-refd-syms args isrefs '()) env) enviro)]
+                      (get-non-refd-syms args isrefs '()) enviro)]
                 [complete-envior 
                   (extend-env-ref 
                     refsyms 
                     (map (lambda (x) 
-                      (apply-env-ref env x
-                        (lambda (x) x) 
-                        (lambda () (cell x))))
-                    (eval-rands (get-refd-syms args isrefs '())))
+                            (apply-env-ref env (1st x)
+                              (lambda (found) (begin (cell-set! found (2nd x)) found)) 
+                              (lambda () (cell (2nd x)))))
+                    (map (lambda (v1 v2) (list v1 v2)) 
+                          refsyms (get-refd-syms args isrefs '())))
                     partial-enviro)])
-        (map-first (lambda (x) (eval-exp x complete-envior) bodies)))]
+        (map-first (lambda (x) (eval-exp x complete-envior)) bodies))]
       [else (eopl:error 'apply-proc
                    "Attempt to apply bad procedure: ~s" 
                     proc-value)])))
