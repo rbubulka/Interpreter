@@ -110,8 +110,8 @@
   (lambda (val)
     (box val)))
 (define cell-set!
-  (lambda (cell val) 
-    (set-box! cell val)))
+  (lambda (cel val) 
+    (set-box! cel val)))
 (define cell-ref
   (lambda (cell)
     (unbox cell)))
@@ -603,7 +603,7 @@
 												    old-env))
 							  (else (eopl:error 'define-exp "Bad global environment"))))))]
       [set!-exp (var body)
-          (set-box!
+          (cell-set!
             (apply-env-ref env var (lambda (x) x) (lambda () (eopl:error "inputvariable not located")))
             (eval-exp body env))]
       [else (eopl:error 'eval-exp "Bad abstract syntax: ~a" exp)])))
@@ -661,15 +661,20 @@
                   (extend-env nonrefs 
                       (get-non-refd-syms args isrefs '()) enviro)]
                 [complete-envior 
-                  (extend-env-ref 
-                    refsyms 
-                    (map (lambda (x) 
-                            (apply-env-ref env (1st x)
-                              (lambda (found) (begin (cell-set! found (2nd x)) found)) 
-                              (lambda () (cell (2nd x)))))
-                    (map (lambda (v1 v2) (list v1 v2)) 
-                          refsyms (get-refd-syms args isrefs '())))
-                    partial-enviro)])
+                    (let eviorloop ([remainingsyms refsyms]
+                                    [remainingargs (get-refd-syms args isrefs '())]
+                                    [goodsyms '()]
+                                    [goodargs '()])
+                    (if (null? remainingsyms)
+                      (extend-env-ref goodsyms (map cell goodargs) partial-enviro)
+                      (if (apply-env-ref env (car remainingsyms)
+                        (lambda (found) (begin (cell-set! found (car remainingargs)) #t))
+                        (lambda () #f))
+                        (eviorloop (cdr remainingsyms) (cdr remainingargs) goodsyms goodargs)
+                        (eviorloop (cdr remainingsyms) 
+                                    (cdr remainingargs) 
+                                    (cons (car remainingsyms) goodsyms) 
+                                    (cons (car remainingargs) goodargs)))))])
         (map-first (lambda (x) (eval-exp x complete-envior)) bodies))]
       [else (eopl:error 'apply-proc
                    "Attempt to apply bad procedure: ~s" 
