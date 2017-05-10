@@ -49,7 +49,10 @@
    (vars (list-of symbol?))
    (improps symbol?)
    (body (list-of expression?))]
-
+   [lambda-ref-exp
+    (varss (list-of symbol?))
+    (refs list?)
+    (body (list-of expression?))]
   ;Ifs
   [if-exp
    (condition expression?)
@@ -141,6 +144,11 @@
    (rest symbol?)
    (bodies (list-of expression?))
    (envir environment?)]
+   [proc-ref
+    (syms (lambda (x) (or ((list-of symbol?)x) (symbol? x) (pair? x))))
+    (ref (list-of boolean?)) ;designeds which symbols are references
+    (bodies (list-of expression?))
+    (env environment?)]
    )
    
   
@@ -239,10 +247,15 @@
      [(pair? (2nd datum))
       (let loop ([end (2nd datum)] [req '()]) 
         (if (null? (cdr end))
-      (lambda-exp (2nd datum) (map parse-exp (cddr datum)))
-      (if (not (pair? (cdr end)))
-          (lambda-improp-exp (append req (list (car end))) (cdr end)  (map parse-exp (cddr datum)))
-          (loop (cdr end) (append req (list (car end)))))))]
+            (lambda-exp (2nd datum) (map parse-exp (cddr datum)))
+            (if (ormap (lambda (x) (and (list? x) (eqv? (car x) 'ref))) end)
+                (lambda-ref-exp
+                    (get-ref-ids (2nd datum) '())
+                    (refpos (cadr datum) '())
+                    (map parse-exp (cddr datum)))
+                (if (not (pair? (cdr end)))
+                    (lambda-improp-exp (append req (list (car end))) (cdr end)  (map parse-exp (cddr datum)))
+                    (loop (cdr end) (append req (list (car end))))))))]
      [else (if (symbol? (2nd datum))
          (lambda-improp-exp '() (2nd datum) (map parse-exp (cddr datum)))
          (eopl:error 'parse-exp "lambda variable must be a symbol"))])
@@ -284,6 +297,21 @@
    [(eqv? (1st datum) 'while) (while-exp (parse-exp (2nd datum)) (map parse-exp (cddr datum)))]
    [else (app-exp (parse-exp (1st datum)) (map parse-exp (cdr datum)))])]
     [else (eopl:error 'parse-exp "bad expression: ~s" datum)])))
+
+(define get-ref-ids
+  (lambda (args res)
+    (cond
+      [(null? args) (reverse res)]
+      [(list? (car args)) (get-ref-ids (cdr args) (cons (cadr (car args)) res))]
+      [else (get-ref-ids (cdr args) (cons (car args) res))])))
+
+(define refpos
+  (lambda (args res)
+    (cond
+      [(null? args) (reverse res)]
+      [(list? (car args)) (refpos (cdr args) (cons #t res))]
+      [else (refpos (cdr args) (cons #f res))])))
+
 
 (define get-letrec-args
   (lambda (var varlist)
@@ -473,6 +501,8 @@
     [if-else-exp (condit then-exp else-exp) (if-else-exp (syntax-expand condit) (syntax-expand then-exp)(syntax-expand else-exp))]
     [set!-exp (setvars newval) (set!-exp setvars (syntax-expand newval))]
     [begin-exp (bodies) (syntax-expand (let-exp '() '() bodies))]
+    [lambda-ref-exp (id refs body)
+        (lambda-ref-exp id refs (map syntax-expand body))]
     [cond-exp (conditions thens) ;come back and fix in the event of no else statement
           (let loop ([remainingconds conditions] 
                       [remainingthens thens])
@@ -557,6 +587,7 @@
       [if-exp (condition then-exp) (if (eval-exp condition env) (eval-exp then-exp env))]
       [lambda-exp (vars bodies) (proc vars bodies env)]
       [lambda-improp-exp (vars improps bodies) (improp-proc vars improps bodies env)]
+      [lambda-ref-exp (vars isrefs bodies)  (proc-ref vars isrefs bodies env)]
       [letrec-exp (procs proc-vars proc-bodies body)
               (get-last (eval-rands body (extend-env-recursively procs proc-vars proc-bodies env)))]
       [while-exp (condition bodies)
@@ -623,9 +654,40 @@
        (eval-exp (car bds) xp)
        (begin (eval-exp (car bds) xp)
         (loop (cdr bds) xp))))]
+       [proc-ref (syms isrefs bodies enviro)
+        (let* ([nonrefs (get-non-refd-syms syms isrefs '())]
+                [refsyms (get-refd-syms syms isrefs '())]
+                [partial-enviro 
+                  (extend-env nonrefs 
+                      (eval-rands (get-non-refd-syms args isrefs '()) env) enviro)]
+                [complete-envior 
+                  (extend-env-ref 
+                    refsyms 
+                    (map (lambda (x) 
+                      (apply-env-ref env (2nd x) 
+                        (lambda (x) x) 
+                        (lambda () eop:error 'apply-env "var not fount")))
+                    (get-refd-syms args isrefs '()))
+                    partial-enviro)])
+        (map-first (lambda (x) (eval-exp x complete-envior) body)))]
       [else (eopl:error 'apply-proc
                    "Attempt to apply bad procedure: ~s" 
                     proc-value)])))
+
+
+(define get-refd-syms
+  (lambda (syms isrefs res)
+    (cond
+      [(null? syms) (reverse res)]
+      [(car isrefs) (get-refd-syms (cdr syms) (cdr isrefs) (cons (car syms) res))]
+      [else (get-refd-syms (cdr syms) (cdr isrefs) res)])))
+
+(define get-non-refd-syms
+  (lambda (syms isrefs res)
+    (cond
+      [(null? syms) (reverse res)]
+      [(car isrefs) (get-non-refd-syms (cdr syms) (cdr isrefs) res)]
+      [else (get-non-refd-syms (cdr syms) (cdr isrefs) (cons (car syms) res))])))
 
 (define *prim-proc-names* '(+ - * / add1 sub1 zero? not = < > <= >= cons car cdr 
                               list null? assq eq? eqv? equal? atom? length list->vector
@@ -650,6 +712,7 @@
       (map prim-proc
         *prim-proc-names*)
       (empty-env)))))
+
 
 ; Usually an interpreter must define each 
 ; built-in procedure individually.  We are "cheating" a little bit.
