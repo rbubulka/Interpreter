@@ -666,10 +666,10 @@
                     (map (lambda (x) 
                       (apply-env-ref env x
                         (lambda (x) x) 
-                        (lambda () (eopl:error 'apply-env "var not fount"))))
-                    (get-refd-syms args isrefs '()))
+                        (lambda () (cell x))))
+                    (eval-rands (get-refd-syms args isrefs '())))
                     partial-enviro)])
-        (map-first (lambda (x) (eval-exp x complete-envior) body)))]
+        (map-first (lambda (x) (eval-exp x complete-envior) bodies)))]
       [else (eopl:error 'apply-proc
                    "Attempt to apply bad procedure: ~s" 
                     proc-value)])))
