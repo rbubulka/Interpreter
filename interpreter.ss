@@ -141,10 +141,14 @@
    (rest symbol?)
    (bodies (list-of expression?))
    (envir environment?)]
+   [cont-proc
+   (k continuation?)]
    )
    
   
-
+(define-datatype continuation continuation?
+  [id-k]
+  )
 ;-------------------+
 ;                   |
 ;    PARSER         |
@@ -684,7 +688,7 @@
       [(length) (length (1st args))] 
       [(list->vector)(list->vector (1st args))]
       [(list?)(list? (1st args))]
-      [(pair?)(pair? args)]
+      [(pair?)(pair? (1st args))]
       [(procedure?)(or (proc-val? (1st args)) (procedure? (1st args)))]
       [(vector->list)(vector->list (1st args))] 
       [(vector)(apply vector args)] 
