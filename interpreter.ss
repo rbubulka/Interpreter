@@ -141,9 +141,20 @@
    (rest symbol?)
    (bodies (list-of expression?))
    (envir environment?)]
-   [cont-proc
+  [cont-proc
    (k continuation?)]
    )
+
+(define-datatype continuation continuation?
+  (test-k (then-exp expression?)
+	  (else-exp expression?)
+	  (env environment?)
+	  (k continuation?))
+  (rator-k (rands (list-of expression?))
+	   (env environment?)
+	   (k continuation?))
+  (rands-k (proc-value scheme-value?)
+	   (k continuation?)))
    
   
 (define-datatype continuation continuation?
@@ -542,27 +553,23 @@
 ; eval-exp is the main component of the interpreter
 
 (define eval-exp
-  (lambda (exp env)
+  (lambda (exp env k)
     (cases expression exp
-      [lit-exp (datum) datum]
+      [lit-exp (datum) (apply-k k datum)]
       [var-exp (id)
          (apply-env env id; look up its value.
-        (lambda (x) x) ; procedure to call if it is in the environment 
-        (lambda () (eopl:error 'apply-env ; procedure to call if it is not in env
-              "variable not found in environment: ~s"
-         id)))] 
+		    k ; procedure to call if it is in the environment 
+		    (lambda () (eopl:error 'apply-env ; procedure to call if it is not in env
+					   "variable not found in environment: ~s"
+					   id)))] 
       [app-exp (rator rands)
-         (let ([proc-value (eval-exp rator env)]
-         [args (eval-rands rands env)])
-     (if (proc-val? proc-value)
-         (apply-proc proc-value args env)
-         (eopl:error 'eval-exp "Rator is not a procedure: ~a" rator)))]
-      [if-else-exp (condition then-exp else-exp) (if (eval-exp condition env) (eval-exp then-exp env) (eval-exp else-exp env))]
-      [if-exp (condition then-exp) (if (eval-exp condition env) (eval-exp then-exp env))]
-      [lambda-exp (vars bodies) (proc vars bodies env)]
-      [lambda-improp-exp (vars improps bodies) (improp-proc vars improps bodies env)]
+	       (eval-exp rator env (rator-k rands env k))]
+      [if-else-exp (condition then-exp else-exp) (apply-k (test-k then-exp else-exp env) condition)]
+      [if-exp (condition then-exp) (apply-k (test-k then-exp (lit-exp #<void>)) condition)]
+      [lambda-exp (vars bodies) (apply-k k (proc vars bodies env))]
+      [lambda-improp-exp (vars improps bodies) (apply-k k (improp-proc vars improps bodies env))]
       [letrec-exp (procs proc-vars proc-bodies body)
-              (get-last (eval-rands body (extend-env-recursively procs proc-vars proc-bodies env)))]
+              (eval-rands body (extend-env-recursively procs proc-vars proc-bodies env) (lambda (evald-bodies) (get-last evald-bodies k)))]
       [while-exp (condition bodies)
                     (if (eval-exp condition env)
                         (begin (map-first (lambda (x) (eval-exp x env)) bodies) 
@@ -582,30 +589,44 @@
       [else (eopl:error 'eval-exp "Bad abstract syntax: ~a" exp)])))
 
 (define map-first
-  (lambda (f x)
-    (let ([val (f (car x))])
-      (if (null? (cdr x))
-    (list val)
-    (cons val (map-first f (cdr x)))))))
-
+  (lambda (f x k)
+    (if (null? x)
+	(apply-k k '())
+	(apply-proc f (car x) (lambda (firstval) 
+				(map-first f (cdr x) (lambda (rest-of-list) 
+						       (apply-k k (cons firstval restoflist)))))))))
 
 (define get-last
-  (lambda (x)
+  (lambda (x k)
     (if (symbol? x)
-  x
-  (if (null? (cdr x))
-      (car x)
-      (get-last (cdr x))))))
+	(apply-k k x)
+	(if (null? (cdr x))
+	    (apply-k k (car x))
+	    (get-last (cdr x) k)))))
 
 ; evaluate the list of operands, putting results into a list
 
 (define eval-rands
-  (lambda (rands env)
-    (map (lambda (x) (eval-exp x env)) rands)))
+  (lambda (rands env k)
+    (map-first (lambda (x) (eval-exp x env)) rands k)))
 
 ;  Apply a procedure to its arguments.
 ;  At this point, we only have primitive procedures.  
 ;  User-defined procedures will be added later.
+
+(define apply-k
+  (lambda (k val)
+    (cases continuation k
+	   [test-k (then-exp else-exp env k)
+		   (if val
+		       (eval-exp then-exp env k)
+		       (eval-exp else-exp env k))]
+	   [rator-k (rands env k)
+		    (eval-rands rands env (rands-k val k))]
+	   [rands-k (proc-value k)
+		    (apply-proc proc-value val k)]
+
+)))
 
 (define apply-proc
   (lambda (proc-value args env)
@@ -726,10 +747,10 @@
   (lambda ()
     (display "--> ")
     ;; notice that we don't save changes to the environment...
-    (let ([answer (top-level-eval (syntax-expand (parse-exp (read))) (empty-env))])
+    (let ([answer (top-level-eval (syntax-expand (parse-exp (read))) (empty-env) (lambda (x) x))])
       ;; TODO: are there answers that should display differently?
       (eopl:pretty-print answer) (newline)
       (rep))))  ; tail-recursive, so stack doesn't grow.
 
 (define eval-one-exp
-  (lambda (x) (top-level-eval (syntax-expand (parse-exp x)) (empty-env))))
+  (lambda (x) (top-level-eval (syntax-expand (parse-exp x)) (empty-env) (lambda (x) x))))
