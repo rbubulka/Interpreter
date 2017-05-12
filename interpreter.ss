@@ -107,11 +107,13 @@
   (lambda (val)
     (box val)))
 (define cell-set!
-  (lambda (cell val) 
+  (lambda (cell val k) 
     (set-box! cell val)))
 (define cell-ref
   (lambda (cell)
     (unbox cell)))
+(define cell-k
+    (lambda (val k) (apply-k k (box val))))
 
 (define-datatype environment environment?
   [empty-env-record]
@@ -156,10 +158,6 @@
   (rands-k (proc-value scheme-value?)
 	   (k continuation?)))
    
-  
-(define-datatype continuation continuation?
-  [id-k]
-  )
 ;-------------------+
 ;                   |
 ;    PARSER         |
@@ -405,61 +403,33 @@
   (list-set! (cdr ls) (- pos 1) val))))
 
 (define apply-env
-  (lambda (env sym succeed fail)
-    (deref (apply-env-ref env sym succeed fail))))
+  (lambda (env sym cont fail)
+    (apply-env-ref env sym (lambda (sym) (deref sym cont)) fail)))
 
-(define deref (lambda (x) (if (cell? x) (cell-ref x) x)))
-
-; (define apply-env
-;   (lambda (e sym succeed fail)
-;     (let ae ([tag 0] [ev e])
-;       (cases environment ev      
-;         [empty-env-record () 
-;              (if (equal? tag 0)
-;            (ae 1 init-env)
-;            (fail))]
-;         [extended-env-record (syms vals env)
-;           (let ((pos (list-find-position sym syms)))
-;             (if (number? pos)
-;           (succeed (list-ref vals pos))
-;           (ae tag env)))]
-;         [recursively-extended-env-record (proc-names proc-vars proc-bodies old-env)
-;           (let ([pos (list-find-position sym proc-names)])
-;             (if (number? pos)
-;     (if ((list-of symbol?) (list-ref proc-vars pos))
-;         (proc (list-ref proc-vars pos)
-;                           (list-ref proc-bodies pos) e)
-;         (improp-proc (not-last-improp (list-ref proc-vars pos))
-;          (get-last (list-ref proc-vars pos))
-;          (list-ref proc-bodies pos) e))
-;                 (apply-env old-env sym succeed fail)))]))))
+(define deref (lambda (x k) (if (cell? x) (apply-k k (cell-ref x)) (apply-k k x))))
 
 (define apply-env-ref 
   (lambda (env sym succeed fail) 
     (cases environment env
       [empty-env-record ()
-        (let ((pos (list-find-position sym (cadr global-env))))
-          (if (number? pos)
-              (succeed (list-ref (caddr global-env) pos))
-              (fail)))]
-      
+        (list-find-position sym (cadr global-env) (lambda (pos) (if (number? pos) 
+                                                                    (apply-k succeed (list-ref (3rd global-env) pos))
+                                                                    (fail))))]
       [extended-env-record (syms vals env)
-        (let ((pos (list-find-position sym syms)))
-          (if (number? pos)
-              (succeed (list-ref vals pos))
-              (apply-env-ref env sym succeed fail)))]
+        (list-find-position sym syms (lambda (pos) (if (number? pos) 
+                                                                    (apply-k succeed (list-ref vals pos))
+                                                                    (apply-env-ref env sym succeed fail))))]
       
       [recursively-extended-env-record (proc-names proc-ids proc-bodies old-env)
-        (let ((pos (list-find-position sym proc-names)))
-          (if (number? pos)
-              (succeed (cell (proc (list-ref proc-ids pos) (list-ref proc-bodies pos) env)))
-              (apply-env-ref old-env sym succeed fail)))])))
+        (list-find-position sym proc-names (lambda (pos) (if (number? pos) 
+                                                                    (cell-k (proc (list-ref proc-ids pos) (list-ref proc-bodies pos) env) succeed)
+                                                                    (apply-env-ref old-env sym succeed fail))))])))
 
 
-(define list-find-position (lambda (sym ls)[cond
-  [(null? ls) #f]
-  [(eqv? sym (1st ls)) 0]
-  [else (let ([pos (list-find-position sym (cdr ls))]) (if(number? pos) (add1 pos) pos))]
+(define list-find-position (lambda (sym ls k)[cond
+  [(null? ls) (apply-k k #f)]
+  [(eqv? sym (1st ls)) (apply-k k 0)]
+  [else (list-find-position sym (cdr ls) (lambda (pos) (if (number? pos) (+-cps pos 1 k) (apply-k k pos))))]
   ]))
 
 (define not-last-improp
@@ -468,6 +438,11 @@
   (cons (car ls) (not-last-improp (cdr ls)))
   '())))
   
+
+(define +-cps
+ (lambda (a b k)
+ (apply-continuation k (+ a b))))
+
   (define set-ref! cell-set!)
 ;-----------------------+
 ;                       |
@@ -546,9 +521,9 @@
 ; top-level-eval evaluates a form in the global environment
 
 (define top-level-eval
-  (lambda (form env)
+  (lambda (form env k)
     ; later we may add things that are not expressions.
-    (eval-exp form env)))
+    (eval-exp form env k)))
 
 ; eval-exp is the main component of the interpreter
 
@@ -565,23 +540,24 @@
       [app-exp (rator rands)
 	       (eval-exp rator env (rator-k rands env k))]
       [if-else-exp (condition then-exp else-exp) (apply-k (test-k then-exp else-exp env) condition)]
-      [if-exp (condition then-exp) (apply-k (test-k then-exp (lit-exp #<void>)) condition)]
+      [if-exp (condition then-exp) (apply-k (test-k then-exp (lit-exp (void))) condition)]
       [lambda-exp (vars bodies) (apply-k k (proc vars bodies env))]
       [lambda-improp-exp (vars improps bodies) (apply-k k (improp-proc vars improps bodies env))]
       [letrec-exp (procs proc-vars proc-bodies body)
               (eval-rands body (extend-env-recursively procs proc-vars proc-bodies env) (lambda (evald-bodies) (get-last evald-bodies k)))]
       [while-exp (condition bodies)
-                    (if (eval-exp condition env)
-                        (begin (map-first (lambda (x) (eval-exp x env)) bodies) 
-                                (eval-exp exp env)))]
+                  (eval-exp condition env 
+                    (lambda (keep-going) 
+                      (if keep-going  
+                        (map-first (lambda (x) (eval-exp x env k)) bodies (lambda(mapped-bodies) (eval-exp (while-exp condition mapped-bodies) env k))))))]
       [define-exp (var val)
-	(apply-env-ref env var (lambda (x) (cell-set! x (eval-exp val env)))
-		       (lambda () (set! global-env (cases environment global-env
-							  (extended-env-record (syms vals old-env)
-									       (extended-env-record (cons var syms)
-												    (map cell (cons (eval-exp val env) (map unbox vals)))
-												    old-env))
-							  (else (eopl:error 'define-exp "Bad global environment"))))))]
+      	(apply-env-ref env var (lambda (x) (cell-set! x (eval-exp val env)))
+      		       (lambda () (set! global-env (cases environment global-env
+      							  (extended-env-record (syms vals old-env)
+      									       (extended-env-record (cons var syms)
+      												    (map cell (cons (eval-exp val env) (map unbox vals)))
+      												    old-env))
+      							  (else (eopl:error 'define-exp "Bad global environment"))))))]
       [set!-exp (var body)
           (set-box!
             (apply-env-ref env var (lambda (x) x) (lambda () (eopl:error "inputvariable not located")))
