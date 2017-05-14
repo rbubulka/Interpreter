@@ -148,15 +148,44 @@
    )
 
 (define-datatype continuation continuation?
-  (test-k (then-exp expression?)
+  (idenitiy-k)
+  (if-then-else-k 
+    (then-exp expression?)
 	  (else-exp expression?)
 	  (env environment?)
 	  (k continuation?))
-  (rator-k (rands (list-of expression?))
+  (if-then-k 
+    (then-exp expression?)
+    (env environment?)
+    (k continuation?))
+  (rator-k 
+     (rands (list-of expression?))
 	   (env environment?)
 	   (k continuation?))
-  (rands-k (proc-value scheme-value?)
-	   (k continuation?)))
+  (rands-k 
+     (proc-value scheme-value?)
+	   (k continuation?))
+  (map-k
+    (to-map scheme-value?)
+    (args list?)
+    (k continuation?))
+  (map-cont
+    (prev-val scheme-value?)
+    (k continuation?))
+  (set-k
+    (to-set scheme-value?)
+    (env environment?)
+    (k continuation?))
+  [map-first-k
+    (body scheme-value?)
+    (env environment?)
+    (k continuation?)]
+  [map-next-first-k
+    (body scheme-value?)
+    (env environment?)
+    (k continuation?)]
+  )
+
    
 ;-------------------+
 ;                   |
@@ -370,6 +399,10 @@
   (lambda ()
     (empty-env-record)))
 
+(define set!-cps
+  (lambda (arg1 arg2 k)
+      (apply-k k (set! arg1 arg2))))
+
 (define extend-env
   (lambda (syms vals env)
     (extended-env-record syms (map cell vals) env)))
@@ -397,7 +430,7 @@
      #f))))))
 
 (define list-set!
-  (lambda (ls pos val)
+  (lambda (ls pos val )
     (if (zero? pos)
   (set-car! ls val)
   (list-set! (cdr ls) (- pos 1) val))))
@@ -438,12 +471,27 @@
   (cons (car ls) (not-last-improp (cdr ls)))
   '())))
   
-
 (define +-cps
  (lambda (a b k)
  (apply-continuation k (+ a b))))
 
   (define set-ref! cell-set!)
+
+(define map-cps
+  (lambda (proc-cps L k)
+    (cond
+      [(null? L) (apply-k k '())]
+      [else
+        (proc-cps
+          (car L)
+          (map-k
+            proc-cps
+            (cdr L)
+            k))])))
+
+(define set!-cps
+  (lambda (arg1 arg2 k)
+      (apply-k k (set! arg1 arg2))))
 ;-----------------------+
 ;                       |
 ;   SYNTAX EXPANSION    |
@@ -522,7 +570,7 @@
 
 (define top-level-eval
   (lambda (form env k)
-    ; later we may add things that are not expressions.
+    ; later we may add things thatare not expressions.
     (eval-exp form env k)))
 
 ; eval-exp is the main component of the interpreter
@@ -532,15 +580,15 @@
     (cases expression exp
       [lit-exp (datum) (apply-k k datum)]
       [var-exp (id)
-         (apply-env env id; look up its value.
-		    k ; procedure to call if it is in the environment 
-		    (lambda () (eopl:error 'apply-env ; procedure to call if it is not in env
-					   "variable not found in environment: ~s"
-					   id)))] 
+        (apply-k k (apply-env env id;
+                     (lambda (x) x)
+                     (lambda () (eopl:error 'apply-env
+                          "variable not found in environment: ~s"
+                     id))))] 
       [app-exp (rator rands)
 	       (eval-exp rator env (rator-k rands env k))]
-      [if-else-exp (condition then-exp else-exp) (apply-k (test-k then-exp else-exp env) condition)]
-      [if-exp (condition then-exp) (apply-k (test-k then-exp (lit-exp (void))) condition)]
+      [if-else-exp (condition then-exp else-exp) (apply-k (if-then-else-k then-exp else-exp env k) condition)]
+      [if-exp (condition then-exp) (apply-k (if-then-k then-exp env k) condition)]
       [lambda-exp (vars bodies) (apply-k k (proc vars bodies env))]
       [lambda-improp-exp (vars improps bodies) (apply-k k (improp-proc vars improps bodies env))]
       [letrec-exp (procs proc-vars proc-bodies body)
@@ -559,18 +607,28 @@
       												    old-env))
       							  (else (eopl:error 'define-exp "Bad global environment"))))))]
       [set!-exp (var body)
-          (set-box!
-            (apply-env-ref env var (lambda (x) x) (lambda () (eopl:error "inputvariable not located")))
-            (eval-exp body env))]
+          (eval-exp body env (set-k var env k))]
       [else (eopl:error 'eval-exp "Bad abstract syntax: ~a" exp)])))
 
 (define map-first
   (lambda (f x k)
     (if (null? x)
-	(apply-k k '())
-	(apply-proc f (car x) (lambda (firstval) 
-				(map-first f (cdr x) (lambda (rest-of-list) 
-						       (apply-k k (cons firstval restoflist)))))))))
+	     (apply-k k '())
+       (if (null? (cdr body))
+            (eval-exp (cdr body) env k)
+          	(apply-proc f (car x) (lambda (firstval) 
+          				(map-first f (cdr x) (lambda (rest-of-list) 
+          						       (apply-k k (cons firstval restoflist))))))))))
+
+
+(define eval-inorder
+  (lambda (body env k)
+    (if (null? body)
+      (apply-k k '())
+      (if (null? (cdr body))
+        (eval-exp (car body) env k)
+        (eval-exp (car body) env (map-next-first-k (cdr body) env k))))))
+
 
 (define get-last
   (lambda (x k)
@@ -593,14 +651,29 @@
 (define apply-k
   (lambda (k val)
     (cases continuation k
-	   [test-k (then-exp else-exp env k)
+     [idenitiy-k () val]
+	   [if-then-else-k (then-exp else-exp env k)
 		   (if val
 		       (eval-exp then-exp env k)
 		       (eval-exp else-exp env k))]
+     [if-then-k (then-exp env k)
+        (if val (eval-exp then-exp env k) (apply-k f (void)))]
 	   [rator-k (rands env k)
 		    (eval-rands rands env (rands-k val k))]
 	   [rands-k (proc-value k)
 		    (apply-proc proc-value val k)]
+     [set-k (id env f)
+        (apply-k f (set-box! (apply-env-ref env id (lambda (x) x) (lambda () (eopl:error 'set! "invalid parameter in set"))) val))]
+      [map-first-k (body env f)
+        (if (null? (cdr body))
+          (eval-exp (car body) env f)
+          (eval-exp (car body) env (map-first-k (cdr body) env f)))]
+      [map-k (proc args f)
+        (map-cps proc args (map-cont val f))]
+      [map-cont (mapval f)
+        (apply-k f (cons mapval val))]
+      [map-next-first-k (body env f)
+        (eval-inorder body env f)]
 
 )))
 
@@ -624,6 +697,8 @@
        (eval-exp (car bds) xp)
        (begin (eval-exp (car bds) xp)
         (loop (cdr bds) xp))))]
+      [continuation-proc (f)
+        (apply-k f (car args))]
       [else (eopl:error 'apply-proc
                    "Attempt to apply bad procedure: ~s" 
                     proc-value)])))
@@ -656,65 +731,67 @@
 ; built-in procedure individually.  We are "cheating" a little bit.
 
 (define apply-prim-proc
-  (lambda (prim-proc args env)
+  (lambda (prim-proc args env k)
     (case prim-proc
-      [(+) (apply + args)]
-      [(-) (apply - args)]
-      [(*) (apply * args)]
-      [(/) (/ (1st args) (2nd args))]
-      [(add1) (+ (1st args) 1)]
-      [(sub1) (- (1st args) 1)]
-      [(cons) (cons (1st args) (2nd args))]
-      [(append) (append (1st args) (2nd args))]
-      [(=) (= (1st args) (2nd args))]
-      [(zero?) (zero? (1st args))]
-      [(not) (not (1st args))]
-      [(<) (< (1st args) (2nd args))] 
-      [(>) (> (1st args) (2nd args))] 
-      [(<=) (<= (1st args) (2nd args))] 
-      [(>=) (>= (1st args) (2nd args))] 
-      [(car) (car (1st args))]
-      [(cdr) (cdr (1st args))]
-      [(list) args]
-      [(null?) (null? (1st args))] 
-      [(assq) (apply assq args)] 
-      [(eq?) (eq? (1st args) (2nd args))]
-      [(eqv?) (eqv? (1st args) (2nd args))] 
-      [(equal?) (equal? (1st args) (2nd args))] 
-      [(atom?) (atom? (1st args))] 
-      [(length) (length (1st args))] 
-      [(list->vector)(list->vector (1st args))]
-      [(list?)(list? (1st args))]
-      [(pair?)(pair? (1st args))]
-      [(procedure?)(or (proc-val? (1st args)) (procedure? (1st args)))]
-      [(vector->list)(vector->list (1st args))] 
-      [(vector)(apply vector args)] 
-      [(make-vector)(make-vector (1st args))]
-      [(vector-ref)(vector-ref (1st args) (2nd args))]
-      [(vector?) (vector? (1st args))] 
-      [(number?)(number? (1st args))] 
-      [(symbol?)(symbol? (1st args))] 
-      [(set-car!) (apply set-car! args)]
-      [(set-cdr!) (apply set-car! args)]
-      [(vector-set!) (vector-set! (1st args) (2nd args) (3rd args))]
-      [(display)(display (1st args))] 
-      [(newline)(newline)] 
-      [(caar) (caar (1st args))]
-      [(cadr) (cadr (1st args))]
-      [(cdar) (cdar (1st args))]
-      [(cddr) (cddr (1st args))]
-      [(caaar) (caaar (1st args))]
-      [(caadr) (caadr (1st args))]
-      [(cadar) (cadar (1st args))]
-      [(cdaar) (cdaar (1st args))]
-      [(caddr) (caddr (1st args))]
-      [(cdadr) (cdadr (1st args))]
-      [(cddar) (cddar (1st args))]
-      [(cdddr) (cdddr (1st args))]
-      [(map) (map (lambda (x) (apply-proc (1st args) (list x) env)) (2nd args))]
-      [(apply) (apply-proc (1st args) (2nd args) env)]
-      [(quotient) (quotient (1st args) (2nd args))]
-      [(list-tail) (apply list-tail args)]
+      [(+) (apply-k k (apply + args))]
+      [(-) (apply-k k (apply - args))]
+      [(*) (apply-k k (apply * args))]
+      [(/) (apply-k k (/ (1st args) (2nd args)))]
+      [(add1) (apply-k k (+ (1st args) 1))]
+      [(sub1) (apply-k k (- (1st args) 1))]
+      [(cons) (apply-k k (cons (1st args) (2nd args)))]
+      [(append) (apply-k k (append (1st args) (2nd args)))]
+      [(=) (apply-k k (= (1st args) (2nd args)))]
+      [(zero?) (apply-k k (zero? (1st args)))]
+      [(not) (apply-k k (not (1st args)))]
+      [(<) (apply-k k (< (1st args) (2nd args)))] 
+      [(>) (apply-k k (> (1st args) (2nd args)))] 
+      [(<=) (apply-k k (<= (1st args) (2nd args)))] 
+      [(>=) (apply-k k (>= (1st args) (2nd args)))] 
+      [(car) (apply-k k (car (1st args)))]
+      [(cdr) (apply-k k (cdr (1st args)))]
+      [(list) (apply-k k args)]
+      [(null?) (apply-k k (null? (1st args)))] 
+      [(assq) (apply-k k (apply assq args))] 
+      [(eq?) (apply-k k (eq? (1st args) (2nd args)))]
+      [(eqv?) (apply-k k (eqv? (1st args) (2nd args)))] 
+      [(equal?) (apply-k k (equal? (1st args) (2nd args)))] 
+      [(atom?) (apply-k k (atom? (1st args)))] 
+      [(length) (apply-k k (length (1st args)))] 
+      [(list->vector)(apply-k k (list->vector (1st args)))]
+      [(list?)(apply-k k (list? (1st args)))]
+      [(pair?)(apply-k k (pair? (1st args)))]
+      [(procedure?)(apply-k k (or (proc-val? (1st args)) (procedure? (1st args))))]
+      [(vector->list)(apply-k k (vector->list (1st args)))] 
+      [(vector)(apply-k k (apply vector args))] 
+      [(make-vector)(apply-k k (make-vector (1st args)))]
+      [(vector-ref)(apply-k k (vector-ref (1st args) (2nd args)))]
+      [(vector?) (apply-k k (vector? (1st args)))] 
+      [(number?)(apply-k k (number? (1st args)))] 
+      [(symbol?)(apply-k k (symbol? (1st args)))] 
+      [(set-car!)(apply-k k (apply set-car! args))]
+      [(set-cdr!) (apply-k k (apply set-car! args))]
+      [(vector-set!) (apply-k k (vector-set! (1st args) (2nd args) (3rd args)))]
+      [(display)(apply-k k (display (1st args)))] 
+      [(newline)(apply-k k (newline))] 
+      [(caar) (apply-k k (caar (1st args)))]
+      [(cadr) (apply-k k (cadr (1st args)))]
+      [(cdar) (apply-k k (cdar (1st args)))]
+      [(cddr) (apply-k k (cddr (1st args)))]
+      [(caaar) (apply-k k (caaar (1st args)))]
+      [(caadr) (apply-k k (caadr (1st args)))]
+      [(cadar) (apply-k k (cadar (1st args)))]
+      [(cdaar) (apply-k k (cdaar (1st args)))]
+      [(caddr) (apply-k k (caddr (1st args)))]
+      [(cdadr) (apply-k k (cdadr (1st args)))]
+      [(cddar) (apply-k k (cddar (1st args)))]
+      [(cdddr) (apply-k k (cdddr (1st args)))]
+      [(map) (apply-k k (map (lambda (x) (apply-proc (1st args) (list x) env)) (2nd args)))]
+      [(apply) (apply-k k (apply-proc (1st args) (2nd args) env))]
+      [(quotient) (apply-k k (quotient (1st args) (2nd args)))]
+      [(list-tail) (apply-k k (apply list-tail args))]
+      [(call/cc) (apply-proc (car args) (list (continuation-proc k)) k)]
+      [(exit-list) args]
       [else (error 'apply-prim-proc 
             "Bad primitive procedure name: ~s" 
             prim-proc)])))
@@ -729,4 +806,4 @@
       (rep))))  ; tail-recursive, so stack doesn't grow.
 
 (define eval-one-exp
-  (lambda (x) (top-level-eval (syntax-expand (parse-exp x)) (empty-env) (lambda (x) x))))
+  (lambda (x) (top-level-eval (syntax-expand (parse-exp x)) (empty-env) (idenitiy-k))))
