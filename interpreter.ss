@@ -149,15 +149,17 @@
 
 (define-datatype continuation continuation?
   (identity-k)
+  (list-k
+   (k continuation?))
   (if-then-else-k 
-    (then-exp expression?)
-	  (else-exp expression?)
-	  (env environment?)
-	  (k continuation?))
+   (then-exp expression?)
+   (else-exp expression?)
+   (env environment?)
+   (k continuation?))
   (if-then-k 
-    (then-exp expression?)
-    (env environment?)
-    (k continuation?))
+   (then-exp expression?)
+   (env environment?)
+   (k continuation?))
   (rator-k 
    (rands (list-of expression?))
    (env environment?)
@@ -166,25 +168,18 @@
    (proc-value scheme-value?)
    (env environment?)
    (k continuation?))
-  (map-k
-    (to-map scheme-value?)
-    (args list?)
-    (k continuation?))
-  (map-cont
-    (prev-val scheme-value?)
-    (k continuation?))
   (set-k
-    (to-set scheme-value?)
-    (env environment?)
-    (k continuation?))
+   (to-set scheme-value?)
+   (env environment?)
+   (k continuation?))
   [map-first-k
-    (body scheme-value?)
-    (env environment?)
-    (k continuation?)]
-  [map-next-first-k
-    (body scheme-value?)
-    (env environment?)
-    (k continuation?)]
+   (map-proc proc-val?)
+   (env environment?)
+   (k continuation?)]
+  [append-k
+   (app scheme-value?)
+   (to-append continuation?)
+   (k continuation?)]
   )
 
    
@@ -582,7 +577,7 @@
       [lit-exp (datum) (apply-k k datum)]
       [var-exp (id)
         (apply-k k (apply-env env id;
-                     (lambda (x) x)
+                     (identity-k)
                      (lambda () (eopl:error 'apply-env
                           "variable not found in environment: ~s"
                      id))))] 
@@ -641,7 +636,7 @@
 
 (define eval-rands
   (lambda (rands env k)
-    (map-first (lambda (x) (eval-exp x env (identity-k))) rands k)))
+    (apply-k (map-first-k (proc (x) x env) env k) rands)))
 
 ;  Apply a procedure to its arguments.
 ;  At this point, we only have primitive procedures.  
@@ -651,6 +646,8 @@
   (lambda (k val)
     (cases continuation k
 	   [identity-k () val]
+	   [list-k (k) (apply-k k (list val))]
+	   [append-k (app kapp k) (apply-k k (cons val (apply-k kapp app)))] 
 	   [if-then-else-k (then-exp else-exp env k)
 			   (if val
 			       (eval-exp then-exp env k)
@@ -662,18 +659,11 @@
 	   [rands-k (proc-value env k)
 		    (apply-proc proc-value val env k)]
 	   [set-k (id env f)
-		  (apply-k f (set-box! (apply-env-ref env id (lambda (x) x) (lambda () (eopl:error 'set! "invalid parameter in set"))) val))]
-	   [map-first-k (body env f)
-			(if (null? (cdr body))
-			    (eval-exp (car body) env f)
-			    (eval-exp (car body) env (map-first-k (cdr body) env f)))]
-	   [map-k (proc args f)
-		  (map-cps proc args (map-cont val f))]
-	   [map-cont (mapval f)
-		     (apply-k f (cons mapval val))]
-	   [map-next-first-k (body env f)
-			     (eval-inorder body env f)]
-	   
+		  (apply-k f (set-box! (apply-env-ref env id (identity-k) (lambda () (eopl:error 'set! "invalid parameter in set"))) val))]
+	   [map-first-k (mproc env f)
+			(if (null? (cdr val))
+			    (eval-exp (car val) env (list-k (rands-k mproc env (list-k (identity-k))))) 
+			    (eval-exp (car val) env (list-k (rands-k mproc env (append-k (cdr val) (map-first-k mproc env (identity-k)) f)))))]
 	   )))
 
 (define apply-proc
