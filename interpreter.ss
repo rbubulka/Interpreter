@@ -572,7 +572,7 @@
     (cases expression exp
       [lit-exp (datum) (apply-k k datum)]
       [var-exp (id)
-        (apply-k k (apply-env env id;
+        (apply-k k (apply-env-ref env id
                      (identity-k)
                      (lambda () (eopl:error 'apply-env
                           "variable not found in environment: ~s"
@@ -666,28 +666,28 @@
 (define apply-proc
   (lambda (proc-value args env k)
     (cases proc-val proc-value
-     [prim-proc (op) (apply-prim-proc op args env)]
+     [prim-proc (op) (apply-prim-proc op args env k)]
           ; You will add other cases
      [proc (xs bodies envir)
-     (apply-k k (let loop ([bds bodies] [xp (extend-env xs args envir)])
-            (if (null? (cdr bds))
-          (eval-exp (car bds) xp env k)
-          (begin (eval-exp (car bds) xp)
-           (loop (cdr bds) xp)))))]
+	   (apply-k k (let loop ([bds bodies] [xp (extend-env xs args envir)])
+			(if (null? (cdr bds))
+			    (eval-exp (car bds) xp (identity-k))
+			    (begin (eval-exp (car bds) xp (identity-k))
+				   (loop (cdr bds) xp)))))]
      [improp-proc (x rest bodies envir)
-      (apply-k k (let loop ([bds bodies] [xp (let loop1 ([xs x] [as args] [vars '()] [vals '()])
-                 (if (null? xs)
-                     (extend-env (append vars (list rest)) (append vals (list as)) envir)
-                     (loop1 (cdr xs) (cdr as) (append vars (list (car xs))) (append vals (list (car as))))))])
-             (if (null? (cdr bds))
-           (eval-exp (car bds) xp)
-           (begin (eval-exp (car bds) xp)
-            (loop (cdr bds) xp)))))]
+		  (apply-k k (let loop ([bds bodies] [xp (let loop1 ([xs x] [as args] [vars '()] [vals '()])
+							   (if (null? xs)
+							       (extend-env (append vars (list rest)) (append vals (list as)) envir)
+							       (loop1 (cdr xs) (cdr as) (append vars (list (car xs))) (append vals (list (car as))))))])
+			       (if (null? (cdr bds))
+				   (eval-exp (car bds) xp (identity-k))
+				   (begin (eval-exp (car bds) xp)
+					  (loop (cdr bds) xp)))))]
      [cont-proc (f)
-          (apply-k f (car args))]
+		(apply-k f (car args))]
      [else (eopl:error 'apply-proc
-           "Attempt to apply bad procedure: ~s" 
-           proc-value)])))
+		       "Attempt to apply bad procedure: ~s" 
+		       proc-value)])))
 
 (define *prim-proc-names* '(+ - * / add1 sub1 zero? not = < > <= >= cons car cdr 
                               list null? assq eq? eqv? equal? atom? length list->vector
