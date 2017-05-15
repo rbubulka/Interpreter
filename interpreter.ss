@@ -46,7 +46,6 @@
    (vars (list-of symbol?))
    (improps symbol?)
    (body (list-of expression?))]
-
   ;Ifs
   [if-exp
    (condition expression?)
@@ -444,24 +443,45 @@
   (lambda (env sym cont fail)
     (apply-env-ref env sym (lambda (sym) (deref sym cont)) fail)))
 
-(define deref (lambda (x k) (if (cell? x) (apply-k k (cell-ref x)) (apply-k k x))))
+(define deref (lambda (x) (if (cell? x) (cell-ref x) x)))
+
+; (define apply-env-ref 
+;   (lambda (env sym succeed fail) 
+;     (cases environment env
+;       [empty-env-record ()
+;         (list-find-position sym (cadr global-env) (lambda (pos) (if (number? pos) 
+;                                                                     (succeed (list-ref (3rd global-env) pos))
+;                                                                     (fail))))]
+;       [extended-env-record (syms vals env)
+;         (list-find-position sym syms (lambda (pos) (if (number? pos) 
+;                                                                     (asucceed (list-ref vals pos))
+;                                                                     (apply-env-ref env sym succeed fail))))]
+      
+;       [recursively-extended-env-record (proc-names proc-ids proc-bodies old-env)
+;         (list-find-position sym proc-names (lambda (pos) (if (number? pos) 
+;                                                                     (cell-k (proc (list-ref proc-ids pos) (list-ref proc-bodies pos) env) succeed)
+;                                                                     (apply-env-ref old-env sym succeed fail))))])))
 
 (define apply-env-ref 
   (lambda (env sym succeed fail) 
     (cases environment env
       [empty-env-record ()
-        (list-find-position sym (cadr global-env) (lambda (pos) (if (number? pos) 
-                                                                    (succeed (list-ref (3rd global-env) pos))
-                                                                    (fail))))]
+        (let ((pos (list-find-position sym (cadr global-env))))
+          (if (number? pos)
+              (succeed (list-ref (caddr global-env) pos))
+              (fail)))]
+      
       [extended-env-record (syms vals env)
-        (list-find-position sym syms (lambda (pos) (if (number? pos) 
-                                                                    (asucceed (list-ref vals pos))
-                                                                    (apply-env-ref env sym succeed fail))))]
+        (let ((pos (list-find-position sym syms)))
+          (if (number? pos)
+              (succeed (list-ref vals pos))
+              (apply-env-ref env sym succeed fail)))]
       
       [recursively-extended-env-record (proc-names proc-ids proc-bodies old-env)
-        (list-find-position sym proc-names (lambda (pos) (if (number? pos) 
-                                                                    (cell-k (proc (list-ref proc-ids pos) (list-ref proc-bodies pos) env) succeed)
-                                                                    (apply-env-ref old-env sym succeed fail))))])))
+        (let ((pos (list-find-position sym proc-names)))
+          (if (number? pos)
+              (succeed (cell (proc (list-ref proc-ids pos) (list-ref proc-bodies pos) env)))
+              (apply-env-ref old-env sym succeed fail)))])))
 
 (define not-last-improp
   (lambda (ls)
@@ -570,7 +590,7 @@
       [lit-exp (datum) (apply-k k datum)]
       [var-exp (id)
         (apply-k k (apply-env-ref env id
-                     (identity-k)
+                     (lambda (x) x)
                      (lambda () (eopl:error 'apply-env
                           "variable not found in environment: ~s"
                      id))))] 
@@ -644,11 +664,11 @@
      [rator-k (rands env k)
         (eval-rands rands env (rands-k val env k))]
      [rands-k (pval env k)
-        (apply-proc pval val env k)]
+        (apply-proc (deref pval) val env k)]
      [set-k (id env k)
       (apply-k k 
         (set-box! 
-          (apply-env-ref env id (identity-k) (lambda () (eopl:error 'set! "invalid parameter in set"))) val))]
+          (apply-env-ref env id (lambda (x) x) (lambda () (eopl:error 'set! "invalid parameter in set"))) val))]
       [map-k (mproc li k)
         (map-cps mproc li (map-cont-k val k))]
       [map-cont-k (prev k)
