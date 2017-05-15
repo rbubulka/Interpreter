@@ -1,6 +1,3 @@
-;:  Single-file version of the interpreter.
-;; Easier to submit to server, probably harder to use in the development process
-
 (load "chez-init.ss") 
 
 ;-------------------+
@@ -385,6 +382,9 @@
 ;-------------------+
 
 
+
+
+
 ; Environment definitions for CSSE 304 Scheme interpreter.  
 ; Based on EoPL sections 2.2 and 2.3
 
@@ -550,6 +550,7 @@
     )))
 
 
+
 ;-------------------+
 ;                   |
 ;   INTERPRETER     |
@@ -578,7 +579,7 @@
                           "variable not found in environment: ~s"
                      id))))] 
       [app-exp (rator rands)
-	       (eval-exp rator env (rator-k rands env k))]
+         (eval-exp rator env (rator-k rands env k))]
       [if-else-exp (condition then-exp else-exp) (apply-k (if-then-else-k then-exp else-exp env k) condition)]
       [if-exp (condition then-exp) (apply-k (if-then-k then-exp env k) condition)]
       [lambda-exp (vars bodies) (apply-k k (proc vars bodies env))]
@@ -591,13 +592,13 @@
                       (if keep-going  
                         (map-first (lambda (x) (eval-exp x env k)) bodies (lambda(mapped-bodies) (eval-exp (while-exp condition mapped-bodies) env k))))))]
       [define-exp (var val)
-      	(apply-env-ref env var (lambda (x) (cell-set! x (eval-exp val env)))
-      		       (lambda () (set! global-env (cases environment global-env
-      							  (extended-env-record (syms vals old-env)
-      									       (extended-env-record (cons var syms)
-      												    (map cell (cons (eval-exp val env) (map unbox vals)))
-      												    old-env))
-      							  (else (eopl:error 'define-exp "Bad global environment"))))))]
+        (apply-env-ref env var (lambda (x) (cell-set! x (eval-exp val env)))
+                 (lambda () (set! global-env (cases environment global-env
+                      (extended-env-record (syms vals old-env)
+                               (extended-env-record (cons var syms)
+                                  (map cell (cons (eval-exp val env) (map unbox vals)))
+                                  old-env))
+                      (else (eopl:error 'define-exp "Bad global environment"))))))]
       [set!-exp (var body)
           (eval-exp body env (set-k var env k))]
       [else (eopl:error 'eval-exp "Bad abstract syntax: ~a" exp)])))
@@ -605,11 +606,11 @@
 (define map-first
   (lambda (f x k)
     (if (null? x)
-	(apply-k k '())
-	(if (null? (cdr x))
+  (apply-k k '())
+  (if (null? (cdr x))
             (apply-k k (list (f (car x))))
-	    (map-first f (cdr x) (lambda (rest-of-list)
-				   (apply-k k (cons (f (car x)) rest-of-list))))))))
+      (map-first f (cdr x) (lambda (rest-of-list)
+           (apply-k k (cons (f (car x)) rest-of-list))))))))
 
 (define eval-inorder
   (lambda (body env k)
@@ -623,16 +624,17 @@
 (define get-last
   (lambda (x k)
     (if (symbol? x)
-	(apply-k k x)
-	(if (null? (cdr x))
-	    (apply-k k (car x))
-	    (get-last (cdr x) k)))))
+  (apply-k k x)
+  (if (null? (cdr x))
+      (apply-k k (car x))
+      (get-last (cdr x) k)))))
 
 ; evaluate the list of operands, putting results into a list
 
 (define eval-rands
-  (lambda (rands env k)
-    (apply-k (map-first-k (proc (x) x env) env k) rands)))
+  (lambda (rands env k) 
+    (let ([sym (gensym)])
+    (apply-k (map-first-k (proc (list sym) (list (var-exp sym)) env) env k) rands))))
 
 ;  Apply a procedure to its arguments.
 ;  At this point, we only have primitive procedures.  
@@ -642,57 +644,51 @@
   (lambda (k val)
     (cases continuation k
      [identity-k () val]
-	   [if-then-else-k (then-exp else-exp env k)
-		   (if val
-		       (eval-exp then-exp env k)
-		       (eval-exp else-exp env k))]
+     [list-k (k) (apply-k k (list val))]
+     [append-k (app kapp k) (apply-k k (cons val (apply-k kapp app)))] 
+     [if-then-else-k (then-exp else-exp env k)
+         (if val
+             (eval-exp then-exp env k)
+             (eval-exp else-exp env k))]
      [if-then-k (then-exp env k)
-        (if val (eval-exp then-exp env k))]
-	   [rator-k (rands env k)
-		    (eval-rands rands env (rands-k val k))]
-	   [rands-k (operator k)
-		    (apply-proc operator val k)]
+          (if val (eval-exp then-exp env k) (apply-k f (void)))]
+     [rator-k (rands env k)
+        (eval-rands rands env (rands-k val env k))]
+     [rands-k (proc-value env k)
+        (apply-proc proc-value val env k)]
      [set-k (id env f)
-        (apply-k f (set-box! (apply-env-ref env id (lambda (x) x) (lambda () (eopl:error 'set! "invalid parameter in set"))) val))]
-      [map-first-k (body env f)
-        (if (null? (cdr body))
-          (eval-exp (car body) env f)
-          (eval-exp (car body) env (map-first-k (cdr body) env f)))]
-      [map-k (proc args f)
-        (map-cps proc args (map-cont val f))]
-      [map-cont (mapval f)
-        (apply-k f (cons mapval val))]
-      [map-next-first-k (body env f)
-        (eval-inorder body env f)]
-
-)))
-
+      (apply-k f (set-box! (apply-env-ref env id (identity-k) (lambda () (eopl:error 'set! "invalid parameter in set"))) val))]
+     [map-first-k (mproc env f)
+      (if (null? (cdr val))
+          (eval-exp (car val) env (list-k (rands-k mproc env (list-k (identity-k))))) 
+          (eval-exp (car val) env (list-k (rands-k mproc env (append-k (cdr val) (map-first-k mproc env (identity-k)) f)))))]
+     )))
 
 (define apply-proc
   (lambda (proc-value args env k)
     (cases proc-val proc-value
-      [prim-proc (op) (apply-prim-proc op args env k)]
-      ; You will add other cases
-	   [proc (xs bodies envir)
-		 (apply-k k (let loop ([bds bodies] [xp (extend-env xs args envir)])
-			      (if (null? (cdr bds))
-				  (eval-exp (car bds) xp k)
-				  (begin (eval-exp (car bds) xp)
-					 (loop (cdr bds) xp)))))]
-	   [improp-proc (x rest bodies envir)
-			(apply-k k (let loop ([bds bodies] [xp (let loop1 ([xs x] [as args] [vars '()] [vals '()])
-								 (if (null? xs)
-								     (extend-env (append vars (list rest)) (append vals (list as)) envir)
-								     (loop1 (cdr xs) (cdr as) (append vars (list (car xs))) (append vals (list (car as))))))])
-				     (if (null? (cdr bds))
-					 (eval-exp (car bds) xp)
-					 (begin (eval-exp (car bds) xp)
-						(loop (cdr bds) xp)))))]
-	   [cont-proc (f)
-		      (apply-k f (car args))]
-	   [else (eopl:error 'apply-proc
-			     "Attempt to apply bad procedure: ~s" 
-			     proc-value)])))
+     [prim-proc (op) (apply-k k (apply-prim-proc op args env))]
+          ; You will add other cases
+     [proc (xs bodies envir)
+     (apply-k k (let loop ([bds bodies] [xp (extend-env xs args envir)])
+            (if (null? (cdr bds))
+          (eval-exp (car bds) xp k)
+          (begin (eval-exp (car bds) xp)
+           (loop (cdr bds) xp)))))]
+     [improp-proc (x rest bodies envir)
+      (apply-k k (let loop ([bds bodies] [xp (let loop1 ([xs x] [as args] [vars '()] [vals '()])
+                 (if (null? xs)
+                     (extend-env (append vars (list rest)) (append vals (list as)) envir)
+                     (loop1 (cdr xs) (cdr as) (append vars (list (car xs))) (append vals (list (car as))))))])
+             (if (null? (cdr bds))
+           (eval-exp (car bds) xp)
+           (begin (eval-exp (car bds) xp)
+            (loop (cdr bds) xp)))))]
+     [cont-proc (f)
+          (apply-k f (car args))]
+     [else (eopl:error 'apply-proc
+           "Attempt to apply bad procedure: ~s" 
+           proc-value)])))
 
 (define *prim-proc-names* '(+ - * / add1 sub1 zero? not = < > <= >= cons car cdr 
                               list null? assq eq? eqv? equal? atom? length list->vector
@@ -781,7 +777,7 @@
       [(apply) (apply-proc (1st args) (2nd args) env k)]
       [(quotient) (apply-k k (quotient (1st args) (2nd args)))]
       [(list-tail) (apply-k k (apply list-tail args))]
-      [(call/cc) (apply-proc (car args) (list (cont-proc k)) k)]
+      [(call/cc) (apply-proc (car args) (list (continuation-proc k)) env k)]
       [(exit-list) args]
       [else (error 'apply-prim-proc 
             "Bad primitive procedure name: ~s" 
