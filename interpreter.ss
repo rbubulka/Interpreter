@@ -141,8 +141,7 @@
    (bodies (list-of expression?))
    (envir environment?)]
   [cont-proc
-   (k continuation?)]
-   )
+   (k continuation?)])
 
 (define-datatype continuation continuation?
   (identity-k)
@@ -667,12 +666,12 @@
 (define apply-proc
   (lambda (proc-value args env k)
     (cases proc-val proc-value
-     [prim-proc (op) (apply-k k (apply-prim-proc op args env))]
+     [prim-proc (op) (apply-prim-proc op args env)]
           ; You will add other cases
      [proc (xs bodies envir)
      (apply-k k (let loop ([bds bodies] [xp (extend-env xs args envir)])
             (if (null? (cdr bds))
-          (eval-exp (car bds) xp k)
+          (eval-exp (car bds) xp env k)
           (begin (eval-exp (car bds) xp)
            (loop (cdr bds) xp)))))]
      [improp-proc (x rest bodies envir)
