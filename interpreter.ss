@@ -148,7 +148,7 @@
    )
 
 (define-datatype continuation continuation?
-  (idenitiy-k)
+  (identity-k)
   (if-then-else-k 
     (then-exp expression?)
 	  (else-exp expression?)
@@ -389,9 +389,6 @@
 ;-------------------+
 
 
-
-
-
 ; Environment definitions for CSSE 304 Scheme interpreter.  
 ; Based on EoPL sections 2.2 and 2.3
 
@@ -557,7 +554,6 @@
     )))
 
 
-
 ;-------------------+
 ;                   |
 ;   INTERPRETER     |
@@ -613,12 +609,19 @@
 (define map-first
   (lambda (f x k)
     (if (null? x)
-	     (apply-k k '())
-       (if (null? (cdr body))
-            (eval-exp (cdr body) env k)
-          	(apply-proc f (car x) (lambda (firstval) 
+      (if (null? (cdr x))
+	     (apply-k k (list (f (car x))))
+       (apply-k (lambda (firstval) 
           				(map-first f (cdr x) (lambda (rest-of-list) 
-          						       (apply-k k (cons firstval restoflist))))))))))
+          						       (apply-k k (cons firstval restoflist))))) (f (car x)))))))
+
+(define map-first
+  (lambda (f x k)
+    (if (null? x)
+  (apply-k k '())
+  (apply-proc f (car x) (lambda (firstval) 
+        (map-first f (cdr x) (lambda (rest-of-list) 
+                   (apply-k k (cons firstval restoflist)))))))))
 
 
 (define eval-inorder
@@ -642,7 +645,7 @@
 
 (define eval-rands
   (lambda (rands env k)
-    (map-first (lambda (x) (eval-exp x env)) rands k)))
+    (map-first (lambda (x) (eval-exp x env k)) rands k)))
 
 ;  Apply a procedure to its arguments.
 ;  At this point, we only have primitive procedures.  
@@ -651,17 +654,17 @@
 (define apply-k
   (lambda (k val)
     (cases continuation k
-     [idenitiy-k () val]
+     [identity-k () val]
 	   [if-then-else-k (then-exp else-exp env k)
 		   (if val
 		       (eval-exp then-exp env k)
 		       (eval-exp else-exp env k))]
      [if-then-k (then-exp env k)
-        (if val (eval-exp then-exp env k) (apply-k f (void)))]
+        (if val (eval-exp then-exp env k))]
 	   [rator-k (rands env k)
 		    (eval-rands rands env (rands-k val k))]
-	   [rands-k (proc-value k)
-		    (apply-proc proc-value val k)]
+	   [rands-k (operator k)
+		    (apply-proc operator val k)]
      [set-k (id env f)
         (apply-k f (set-box! (apply-env-ref env id (lambda (x) x) (lambda () (eopl:error 'set! "invalid parameter in set"))) val))]
       [map-first-k (body env f)
@@ -678,15 +681,15 @@
 )))
 
 (define apply-proc
-  (lambda (proc-value args env)
+  (lambda (proc-value args env k)
     (cases proc-val proc-value
-      [prim-proc (op) (apply-prim-proc op args env)]
+      [prim-proc (op) (apply-prim-proc op args env k)]
       ; You will add other cases
       [proc (xs bodies envir)
       (let loop ([bds bodies] [xp (extend-env xs args envir)])
         (if (null? (cdr bds))
-              (eval-exp (car bds) xp)
-              (begin (eval-exp (car bds) xp)
+              (eval-exp (car bds) xp k)
+              (begin (eval-exp (car bds) xp k)
                (loop (cdr bds) xp))))]
       [improp-proc (x rest bodies envir)
        (let loop ([bds bodies] [xp (let loop1 ([xs x] [as args] [vars '()] [vals '()])
@@ -694,10 +697,10 @@
                  (extend-env (append vars (list rest)) (append vals (list as)) envir)
                  (loop1 (cdr xs) (cdr as) (append vars (list (car xs))) (append vals (list (car as))))))])
          (if (null? (cdr bds))
-       (eval-exp (car bds) xp)
-       (begin (eval-exp (car bds) xp)
+       (eval-exp (car bds) xp k)
+       (begin (eval-exp (car bds) xp k)
         (loop (cdr bds) xp))))]
-      [continuation-proc (f)
+      [cont-proc (f)
         (apply-k f (car args))]
       [else (eopl:error 'apply-proc
                    "Attempt to apply bad procedure: ~s" 
@@ -790,7 +793,7 @@
       [(apply) (apply-k k (apply-proc (1st args) (2nd args) env))]
       [(quotient) (apply-k k (quotient (1st args) (2nd args)))]
       [(list-tail) (apply-k k (apply list-tail args))]
-      [(call/cc) (apply-proc (car args) (list (continuation-proc k)) k)]
+      [(call/cc) (apply-proc (car args) (list (cont-proc k)) k)]
       [(exit-list) args]
       [else (error 'apply-prim-proc 
             "Bad primitive procedure name: ~s" 
@@ -806,4 +809,4 @@
       (rep))))  ; tail-recursive, so stack doesn't grow.
 
 (define eval-one-exp
-  (lambda (x) (top-level-eval (syntax-expand (parse-exp x)) (empty-env) (idenitiy-k))))
+  (lambda (x) (top-level-eval (syntax-expand (parse-exp x)) (empty-env) (identity-k))))
