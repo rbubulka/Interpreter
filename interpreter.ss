@@ -569,7 +569,7 @@
     (cases expression exp
       [lit-exp (datum) (apply-k k datum)]
       [var-exp (id)
-        (apply-k k (apply-env env id;
+        (apply-k k (apply-env-ref env id
                      (identity-k)
                      (lambda () (eopl:error 'apply-env
                           "variable not found in environment: ~s"
@@ -684,10 +684,10 @@
            (begin (eval-exp (car bds) xp env k)
             (loop (cdr bds) xp)))))]
      [cont-proc (f)
-          (apply-k f (car args))]
+		(apply-k f (car args))]
      [else (eopl:error 'apply-proc
-           "Attempt to apply bad procedure: ~s" 
-           proc-value)])))
+		       "Attempt to apply bad procedure: ~s" 
+		       proc-value)])))
 
 (define *prim-proc-names* '(+ - * / add1 sub1 zero? not = < > <= >= cons car cdr 
                               list null? assq eq? eqv? equal? atom? length list->vector
