@@ -149,41 +149,37 @@
 
 (define-datatype continuation continuation?
   (identity-k)
+  (list-k
+   (k continuation?))
   (if-then-else-k 
-    (then-exp expression?)
-	  (else-exp expression?)
-	  (env environment?)
-	  (k continuation?))
+   (then-exp expression?)
+   (else-exp expression?)
+   (env environment?)
+   (k continuation?))
   (if-then-k 
-    (then-exp expression?)
-    (env environment?)
-    (k continuation?))
+   (then-exp expression?)
+   (env environment?)
+   (k continuation?))
   (rator-k 
-     (rands (list-of expression?))
-	   (env environment?)
-	   (k continuation?))
+   (rands (list-of expression?))
+   (env environment?)
+   (k continuation?))
   (rands-k 
-     (proc-value scheme-value?)
-	   (k continuation?))
-  (map-k
-    (to-map scheme-value?)
-    (args list?)
-    (k continuation?))
-  (map-cont
-    (prev-val scheme-value?)
-    (k continuation?))
+   (proc-value scheme-value?)
+   (env environment?)
+   (k continuation?))
   (set-k
-    (to-set scheme-value?)
-    (env environment?)
-    (k continuation?))
+   (to-set scheme-value?)
+   (env environment?)
+   (k continuation?))
   [map-first-k
-    (body scheme-value?)
-    (env environment?)
-    (k continuation?)]
-  [map-next-first-k
-    (body scheme-value?)
-    (env environment?)
-    (k continuation?)]
+   (map-proc proc-val?)
+   (env environment?)
+   (k continuation?)]
+  [append-k
+   (app scheme-value?)
+   (to-append continuation?)
+   (k continuation?)]
   )
 
    
@@ -577,7 +573,7 @@
       [lit-exp (datum) (apply-k k datum)]
       [var-exp (id)
         (apply-k k (apply-env env id;
-                     (lambda (x) x)
+                     (identity-k)
                      (lambda () (eopl:error 'apply-env
                           "variable not found in environment: ~s"
                      id))))] 
@@ -609,20 +605,11 @@
 (define map-first
   (lambda (f x k)
     (if (null? x)
-      (if (null? (cdr x))
-	     (apply-k k (list (f (car x))))
-       (apply-k (lambda (firstval) 
-          				(map-first f (cdr x) (lambda (rest-of-list) 
-          						       (apply-k k (cons firstval restoflist))))) (f (car x)))))))
-
-(define map-first
-  (lambda (f x k)
-    (if (null? x)
-  (apply-k k '())
-  (apply-proc f (car x) (lambda (firstval) 
-        (map-first f (cdr x) (lambda (rest-of-list) 
-                   (apply-k k (cons firstval restoflist)))))))))
-
+	(apply-k k '())
+	(if (null? (cdr x))
+            (apply-k k (list (f (car x))))
+	    (map-first f (cdr x) (lambda (rest-of-list)
+				   (apply-k k (cons (f (car x)) rest-of-list))))))))
 
 (define eval-inorder
   (lambda (body env k)
@@ -645,7 +632,7 @@
 
 (define eval-rands
   (lambda (rands env k)
-    (map-first (lambda (x) (eval-exp x env k)) rands k)))
+    (apply-k (map-first-k (proc (x) x env) env k) rands)))
 
 ;  Apply a procedure to its arguments.
 ;  At this point, we only have primitive procedures.  
@@ -680,31 +667,32 @@
 
 )))
 
+
 (define apply-proc
   (lambda (proc-value args env k)
     (cases proc-val proc-value
       [prim-proc (op) (apply-prim-proc op args env k)]
       ; You will add other cases
-      [proc (xs bodies envir)
-      (let loop ([bds bodies] [xp (extend-env xs args envir)])
-        (if (null? (cdr bds))
-              (eval-exp (car bds) xp k)
-              (begin (eval-exp (car bds) xp k)
-               (loop (cdr bds) xp))))]
-      [improp-proc (x rest bodies envir)
-       (let loop ([bds bodies] [xp (let loop1 ([xs x] [as args] [vars '()] [vals '()])
-             (if (null? xs)
-                 (extend-env (append vars (list rest)) (append vals (list as)) envir)
-                 (loop1 (cdr xs) (cdr as) (append vars (list (car xs))) (append vals (list (car as))))))])
-         (if (null? (cdr bds))
-       (eval-exp (car bds) xp k)
-       (begin (eval-exp (car bds) xp k)
-        (loop (cdr bds) xp))))]
-      [cont-proc (f)
-        (apply-k f (car args))]
-      [else (eopl:error 'apply-proc
-                   "Attempt to apply bad procedure: ~s" 
-                    proc-value)])))
+	   [proc (xs bodies envir)
+		 (apply-k k (let loop ([bds bodies] [xp (extend-env xs args envir)])
+			      (if (null? (cdr bds))
+				  (eval-exp (car bds) xp k)
+				  (begin (eval-exp (car bds) xp)
+					 (loop (cdr bds) xp)))))]
+	   [improp-proc (x rest bodies envir)
+			(apply-k k (let loop ([bds bodies] [xp (let loop1 ([xs x] [as args] [vars '()] [vals '()])
+								 (if (null? xs)
+								     (extend-env (append vars (list rest)) (append vals (list as)) envir)
+								     (loop1 (cdr xs) (cdr as) (append vars (list (car xs))) (append vals (list (car as))))))])
+				     (if (null? (cdr bds))
+					 (eval-exp (car bds) xp)
+					 (begin (eval-exp (car bds) xp)
+						(loop (cdr bds) xp)))))]
+	   [cont-proc (f)
+		      (apply-k f (car args))]
+	   [else (eopl:error 'apply-proc
+			     "Attempt to apply bad procedure: ~s" 
+			     proc-value)])))
 
 (define *prim-proc-names* '(+ - * / add1 sub1 zero? not = < > <= >= cons car cdr 
                               list null? assq eq? eqv? equal? atom? length list->vector
@@ -789,8 +777,8 @@
       [(cdadr) (apply-k k (cdadr (1st args)))]
       [(cddar) (apply-k k (cddar (1st args)))]
       [(cdddr) (apply-k k (cdddr (1st args)))]
-      [(map) (apply-k k (map (lambda (x) (apply-proc (1st args) (list x) env)) (2nd args)))]
-      [(apply) (apply-k k (apply-proc (1st args) (2nd args) env))]
+      [(map) (map-first (lambda (x) ((1st args) x)) (2nd args) env k)]
+      [(apply) (apply-proc (1st args) (2nd args) env k)]
       [(quotient) (apply-k k (quotient (1st args) (2nd args)))]
       [(list-tail) (apply-k k (apply list-tail args))]
       [(call/cc) (apply-proc (car args) (list (cont-proc k)) k)]
